@@ -55,14 +55,14 @@ export default function App() {
 
     const fetchLogs = async () => {
       try {
-        const res = await fetch(`/api/projects/${selectedProjectId}/logs`);
+        const res = await fetch(`/api/projects/${selectedProjectId}/logs?containerId=${selectedProject.containerId}`);
         const data = await res.json();
         if (data.logs) {
           setOrganizations(prev => prev.map(org => ({
             ...org,
             projects: org.projects.map(p => 
               p.id === selectedProjectId 
-                ? { ...p, logs: [...(p.logs || []), ...data.logs.filter((l: string) => !(p.logs || []).includes(l))] } 
+                ? { ...p, logs: data.logs } 
                 : p
             )
           })));
@@ -120,23 +120,46 @@ export default function App() {
     setSelectedProjectId(project.id);
     
     toast.promise(
-      fetch('/api/projects/deploy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: project.id, config: project.config })
-      }),
+      async () => {
+        const res = await fetch('/api/projects/deploy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            projectId: project.id, 
+            config: project.config,
+            name: project.name 
+          })
+        });
+        
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.message || 'Failed to deploy containers');
+        }
+        
+        return res.json();
+      },
       {
         loading: 'Deploying containers...',
-        success: () => {
-          setTimeout(() => {
-            setOrganizations(prev => prev.map(org => ({
-              ...org,
-              projects: org.projects.map(p => p.id === project.id ? { ...p, status: 'running', logs: [...(p.logs || []), '[SYSTEM] Containers started successfully.'] } : p)
-            })));
-          }, 2000);
+        success: (data) => {
+          setOrganizations(prev => prev.map(org => ({
+            ...org,
+            projects: org.projects.map(p => p.id === project.id ? { 
+              ...p, 
+              status: 'running', 
+              containerId: data.containerId,
+              port: data.port,
+              logs: [...(p.logs || []), '[SYSTEM] Containers started successfully.'] 
+            } : p)
+          })));
           return 'Deployment triggered successfully';
         },
-        error: 'Failed to deploy containers'
+        error: (err) => {
+          setOrganizations(prev => prev.map(org => ({
+            ...org,
+            projects: org.projects.map(p => p.id === project.id ? { ...p, status: 'error', logs: [...(p.logs || []), `[ERROR] ${err.message}`] } : p)
+          })));
+          return err.message;
+        }
       }
     );
   };
@@ -378,7 +401,15 @@ export default function App() {
                     >
                       <div className="flex items-start justify-between">
                         <div>
-                          <h2 className="text-3xl font-bold tracking-tight mb-2">{selectedProject.name}</h2>
+                          <div className="flex items-center gap-3 mb-2">
+                            <h2 className="text-3xl font-bold tracking-tight">{selectedProject.name}</h2>
+                            {selectedProject.status === 'running' && (
+                              <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 border-emerald-200 gap-1">
+                                <Activity className="w-3 h-3" />
+                                Running on port {selectedProject.port}
+                              </Badge>
+                            )}
+                          </div>
                           <p className="text-zinc-500 max-w-2xl">{selectedProject.description}</p>
                         </div>
                         <div className="flex gap-2">

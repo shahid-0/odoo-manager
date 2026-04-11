@@ -15,6 +15,8 @@ export interface Project {
   createdAt: string;
   status?: ProjectStatus;
   logs?: string[];
+  containerId?: string;
+  port?: string;
 }
 
 export interface ProjectConfig {
