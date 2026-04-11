@@ -1,0 +1,5 @@
+{
+  "name": "Odoo Compose Manager",
+  "description": "A professional tool for managing Odoo organizations, projects, and generating optimized Docker Compose configurations.",
+  "requestFramePermissions": []
+}
