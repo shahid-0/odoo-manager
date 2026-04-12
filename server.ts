@@ -322,8 +322,29 @@ async function startServer() {
         timestamps: true
       });
       
-      // Docker logs are returned as a Buffer with headers, we need to clean them up
-      const logsStr = logs.toString('utf8').replace(/[\x00-\x1F\x7F-\x9F]/g, "").split('\n').filter(Boolean);
+      // Docker logs are returned as a multiplexed Buffer if tty isn't enabled.
+      let logBuffer = logs as unknown as Buffer;
+      if (!Buffer.isBuffer(logBuffer)) logBuffer = Buffer.from(logBuffer as any);
+      
+      const logsArr: string[] = [];
+      let offset = 0;
+      while (offset < logBuffer.length) {
+        if (offset + 8 > logBuffer.length) break;
+        // Header: [stream type (1 byte), 0, 0, 0, length (4 bytes)]
+        const len = logBuffer.readUInt32BE(offset + 4);
+        offset += 8;
+        if (offset + len > logBuffer.length) break;
+        logsArr.push(logBuffer.slice(offset, offset + len).toString('utf8'));
+        offset += len;
+      }
+      
+      // Remove Terminal ANSI Color Codes since UI renders raw text
+      const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+      const logsStr = logsArr.join('')
+        .split('\n')
+        .map(line => line.replace(ansiRegex, '').trim())
+        .filter(Boolean);
+        
       res.json({ logs: logsStr });
     } catch (error) {
       res.json({ logs: [`[ERROR] Failed to fetch logs: ${error}`] });
