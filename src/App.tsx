@@ -286,6 +286,40 @@ export default function App() {
     );
   };
 
+  const handleStartProject = async (project: Project) => {
+    if (!project.containerId) return;
+    toast.promise(
+      async () => {
+        const res = await fetch(`/api/projects/${project.id}/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            containerId: project.containerId,
+            dbContainerId: project.dbContainerId 
+          })
+        });
+        if (!res.ok) throw new Error('Failed to start container');
+        return res.json();
+      },
+      {
+        loading: 'Starting containers...',
+        success: (data) => {
+          setOrganizations(prev => prev.map(org => ({
+            ...org,
+            projects: org.projects.map(p => p.id === project.id ? { 
+              ...p, 
+              status: 'running', 
+              port: data.port || p.port,
+              logs: [...(p.logs || []), '[SYSTEM] Odoo and database containers started.'] 
+            } : p)
+          })));
+          return 'Containers started.';
+        },
+        error: (err) => err.message
+      }
+    );
+  };
+
   const handleDeleteProject = (projectId: string) => {
     if (!selectedOrgId) return;
     setOrganizations(organizations.map(org => 
@@ -605,7 +639,7 @@ export default function App() {
                       <Card className="border-zinc-200 shadow-sm bg-white">
                         <CardContent className="p-5">
                           <div className="flex items-center gap-3 flex-wrap">
-                            {(selectedProject.status === 'idle' || selectedProject.status === 'stopped' || selectedProject.status === 'error') && (
+                            {(selectedProject.status === 'idle' || selectedProject.status === 'error') && (
                               <Button 
                                 size="sm" 
                                 className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
@@ -613,6 +647,16 @@ export default function App() {
                               >
                                 <Rocket className="w-4 h-4" />
                                 Deploy Containers
+                              </Button>
+                            )}
+                            {selectedProject.status === 'stopped' && (
+                              <Button 
+                                size="sm" 
+                                className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                                onClick={() => handleStartProject(selectedProject)}
+                              >
+                                <Play className="w-4 h-4" />
+                                Start Containers
                               </Button>
                             )}
                             {selectedProject.status === 'running' && (

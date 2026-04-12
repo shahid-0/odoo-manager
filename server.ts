@@ -74,6 +74,13 @@ async function startServer() {
         console.log("Creating database container...");
         const dbContainerName = `${safeName}-db-${projectId.slice(0, 8)}`;
         
+        try {
+          const existingDb = docker.getContainer(dbContainerName);
+          await existingDb.remove({ force: true });
+        } catch (e) {
+          // Ignored if it doesn't exist
+        }
+        
         const dbContainer = await docker.createContainer({
           Image: dbImage,
           name: dbContainerName,
@@ -121,6 +128,13 @@ async function startServer() {
       // Add enterprise addons mount if specified
       if (config.enterpriseAddonsPath && config.enterpriseAddonsPath.trim()) {
         binds.push(`${path.resolve(config.enterpriseAddonsPath)}:/mnt/enterprise-addons`);
+      }
+
+      try {
+        const existingOdoo = docker.getContainer(odooContainerName);
+        await existingOdoo.remove({ force: true });
+      } catch (e) {
+        // Ignored if it doesn't exist
       }
 
       const odooContainer = await docker.createContainer({
@@ -332,6 +346,37 @@ async function startServer() {
         console.log(`Stopped DB container: ${dbContainerId.slice(0, 12)}`);
       }
       res.json({ status: "stopped" });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.post("/api/projects/:id/start", async (req, res) => {
+    const { containerId, dbContainerId } = req.body;
+    try {
+      let port;
+      // Start DB container
+      if (dbContainerId) {
+        const dbContainer = docker.getContainer(dbContainerId);
+        await dbContainer.start();
+        console.log(`Started DB container: ${dbContainerId.slice(0, 12)}`);
+      }
+      
+      // Wait a moment for DB to start up if it was provided
+      if (dbContainerId) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      // Start Odoo container
+      if (containerId) {
+        const container = docker.getContainer(containerId);
+        await container.start();
+        const inspect = await container.inspect();
+        // Fallback or read the port binding
+        port = inspect.NetworkSettings.Ports["8069/tcp"]?.[0]?.HostPort;
+        console.log(`Started Odoo container: ${containerId.slice(0, 12)} on port ${port || 'unknown'}`);
+      }
+      res.json({ status: "running", port });
     } catch (error) {
       res.status(500).json({ error: String(error) });
     }
