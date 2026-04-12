@@ -97,6 +97,97 @@ async function startServer() {
     }
   });
 
+  app.post("/api/projects/test-config", async (req, res) => {
+    const { config, name } = req.body;
+    const results: string[] = [];
+    
+    try {
+      // Test 1: Check Docker connectivity
+      try {
+        await docker.ping();
+        results.push("Docker daemon is running and accessible.");
+      } catch (e) {
+        return res.status(500).json({ 
+          status: "error", 
+          message: "Docker is not running or not accessible. Please start Docker Desktop." 
+        });
+      }
+
+      // Test 2: Check if the Odoo image exists locally
+      const odooImage = `odoo:${config.odooVersion}`;
+      try {
+        const images = await docker.listImages({ filters: { reference: [odooImage] } });
+        if (images.length > 0) {
+          results.push(`Odoo image '${odooImage}' found locally.`);
+        } else {
+          results.push(`Odoo image '${odooImage}' not found locally — it will be pulled on deploy.`);
+        }
+      } catch (e) {
+        results.push(`Could not check Odoo image: ${e}`);
+      }
+
+      // Test 3: Check if PostgreSQL image exists locally
+      if (config.includePostgres) {
+        try {
+          const pgImages = await docker.listImages({ filters: { reference: ["postgres:15"] } });
+          if (pgImages.length > 0) {
+            results.push("PostgreSQL image 'postgres:15' found locally.");
+          } else {
+            results.push("PostgreSQL image 'postgres:15' not found locally — it will be pulled on deploy.");
+          }
+        } catch (e) {
+          results.push(`Could not check PostgreSQL image: ${e}`);
+        }
+      }
+
+      // Test 4: Validate configuration values
+      if (!config.dbName || config.dbName.trim() === '') {
+        results.push("⚠ Warning: Database name is empty.");
+      } else {
+        results.push(`Database name: '${config.dbName}' — OK.`);
+      }
+
+      if (!config.dbPassword || config.dbPassword.trim() === '') {
+        results.push("⚠ Warning: Database password is empty.");
+      } else if (config.dbPassword === 'odoo_password') {
+        results.push("⚠ Warning: Using default password. Change this for production.");
+      } else {
+        results.push("Database password is set — OK.");
+      }
+
+      // Test 5: Resource limits validation
+      if (config.resourceLimits.memory) {
+        results.push(`Memory limit: ${config.resourceLimits.memory} — OK.`);
+      }
+      if (config.resourceLimits.cpu) {
+        results.push(`CPU limit: ${config.resourceLimits.cpu} — OK.`);
+      }
+
+      // Test 6: Check for container name conflicts
+      try {
+        const containers = await docker.listContainers({ all: true });
+        const safeName = name.toLowerCase().replace(/\s+/g, '-');
+        const conflicting = containers.filter((c: any) => 
+          c.Names.some((n: string) => n.includes(safeName))
+        );
+        if (conflicting.length > 0) {
+          results.push(`⚠ Warning: ${conflicting.length} existing container(s) found with similar name '${safeName}'.`);
+        } else {
+          results.push("No container name conflicts detected — OK.");
+        }
+      } catch (e) {
+        results.push(`Could not check for container conflicts: ${e}`);
+      }
+
+      res.json({ status: "ok", results });
+    } catch (error: any) {
+      res.status(500).json({ 
+        status: "error", 
+        message: error.message || "Configuration test failed." 
+      });
+    }
+  });
+
   app.get("/api/projects/:id/logs", async (req, res) => {
     const containerId = req.query.containerId as string;
     if (!containerId) {

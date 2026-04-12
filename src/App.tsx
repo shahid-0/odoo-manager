@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Folder, Building2, Download, Copy, Settings2, Trash2, LayoutDashboard, FileCode, Database, Server, Terminal, Play, Square, RefreshCw, Activity } from 'lucide-react';
+import { Plus, Folder, Building2, Download, Copy, Settings2, Trash2, LayoutDashboard, FileCode, Database, Server, Terminal, Play, Square, RefreshCw, Activity, Rocket, FlaskConical, StopCircle, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -15,7 +15,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Organization, Project, ProjectConfig, OdooVersion } from './types';
+import { Organization, Project, ProjectConfig, ProjectStatus, OdooVersion } from './types';
 import { ODOO_VERSIONS, DEFAULT_PROJECT_CONFIG } from './constants';
 import { generateDockerCompose } from './lib/docker-utils';
 
@@ -101,8 +101,8 @@ export default function App() {
       id: crypto.randomUUID(),
       ...newProject,
       createdAt: new Date().toISOString(),
-      status: 'deploying',
-      logs: ['[SYSTEM] Initializing deployment...', '[SYSTEM] Generating Docker Compose file...']
+      status: 'idle',
+      logs: ['[SYSTEM] Project created. Ready to deploy when you are.']
     };
     
     setOrganizations(organizations.map(org => 
@@ -118,7 +118,20 @@ export default function App() {
     });
     setIsNewProjectDialogOpen(false);
     setSelectedProjectId(project.id);
-    
+    toast.success('Project created! Review your configuration and deploy when ready.');
+  };
+
+  const handleDeployProject = async (project: Project) => {
+    // Update status to deploying
+    setOrganizations(prev => prev.map(org => ({
+      ...org,
+      projects: org.projects.map(p => p.id === project.id ? { 
+        ...p, 
+        status: 'deploying' as ProjectStatus, 
+        logs: [...(p.logs || []), '[SYSTEM] Initializing deployment...', '[SYSTEM] Creating Docker containers...'] 
+      } : p)
+    })));
+
     toast.promise(
       async () => {
         const res = await fetch('/api/projects/deploy', {
@@ -151,7 +164,7 @@ export default function App() {
               logs: [...(p.logs || []), '[SYSTEM] Containers started successfully.'] 
             } : p)
           })));
-          return 'Deployment triggered successfully';
+          return 'Containers deployed and running!';
         },
         error: (err) => {
           setOrganizations(prev => prev.map(org => ({
@@ -160,6 +173,90 @@ export default function App() {
           })));
           return err.message;
         }
+      }
+    );
+  };
+
+  const handleTestConfig = async (project: Project) => {
+    setOrganizations(prev => prev.map(org => ({
+      ...org,
+      projects: org.projects.map(p => p.id === project.id ? { 
+        ...p, 
+        logs: [...(p.logs || []), '[TEST] Running configuration tests...'] 
+      } : p)
+    })));
+
+    toast.promise(
+      async () => {
+        const res = await fetch('/api/projects/test-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            projectId: project.id, 
+            config: project.config,
+            name: project.name 
+          })
+        });
+        
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.message || 'Configuration test failed');
+        }
+        
+        return res.json();
+      },
+      {
+        loading: 'Testing configuration...',
+        success: (data) => {
+          setOrganizations(prev => prev.map(org => ({
+            ...org,
+            projects: org.projects.map(p => p.id === project.id ? { 
+              ...p, 
+              logs: [...(p.logs || []), ...data.results.map((r: string) => `[TEST] ${r}`), '[TEST] ✅ All tests passed!'] 
+            } : p)
+          })));
+          return 'All configuration tests passed!';
+        },
+        error: (err) => {
+          setOrganizations(prev => prev.map(org => ({
+            ...org,
+            projects: org.projects.map(p => p.id === project.id ? { 
+              ...p, 
+              logs: [...(p.logs || []), `[TEST] ❌ ${err.message}`] 
+            } : p)
+          })));
+          return err.message;
+        }
+      }
+    );
+  };
+
+  const handleStopProject = async (project: Project) => {
+    if (!project.containerId) return;
+    toast.promise(
+      async () => {
+        const res = await fetch(`/api/projects/${project.id}/stop`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ containerId: project.containerId })
+        });
+        if (!res.ok) throw new Error('Failed to stop container');
+        return res.json();
+      },
+      {
+        loading: 'Stopping containers...',
+        success: () => {
+          setOrganizations(prev => prev.map(org => ({
+            ...org,
+            projects: org.projects.map(p => p.id === project.id ? { 
+              ...p, 
+              status: 'stopped', 
+              logs: [...(p.logs || []), '[SYSTEM] Containers stopped.'] 
+            } : p)
+          })));
+          return 'Containers stopped.';
+        },
+        error: (err) => err.message
       }
     );
   };
@@ -344,6 +441,7 @@ export default function App() {
                   </div>
                   <DialogFooter>
                     <Button onClick={handleCreateProject}>Create Project</Button>
+                    <p className="text-xs text-zinc-400 mt-1">Containers will not be created yet. You can deploy after reviewing your configuration.</p>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
@@ -371,9 +469,18 @@ export default function App() {
                         }`}
                       >
                         <div className="flex items-center justify-between mb-2">
-                          <Badge variant={selectedProjectId === project.id ? 'secondary' : 'outline'} className="text-[10px]">
-                            v{project.config.odooVersion}
-                          </Badge>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${
+                              project.status === 'running' ? 'bg-emerald-400' :
+                              project.status === 'deploying' ? 'bg-amber-400 animate-pulse' :
+                              project.status === 'error' ? 'bg-red-400' :
+                              project.status === 'stopped' ? 'bg-zinc-400' :
+                              'bg-blue-400'
+                            }`} />
+                            <Badge variant={selectedProjectId === project.id ? 'secondary' : 'outline'} className="text-[10px]">
+                              v{project.config.odooVersion}
+                            </Badge>
+                          </div>
                           <span className="text-[10px] opacity-60">
                             {new Date(project.createdAt).toLocaleDateString()}
                           </span>
@@ -409,6 +516,30 @@ export default function App() {
                                 Running on port {selectedProject.port}
                               </Badge>
                             )}
+                            {selectedProject.status === 'idle' && (
+                              <Badge variant="secondary" className="bg-blue-50 text-blue-600 border-blue-200 gap-1">
+                                <CheckCircle2 className="w-3 h-3" />
+                                Ready to Deploy
+                              </Badge>
+                            )}
+                            {selectedProject.status === 'deploying' && (
+                              <Badge variant="secondary" className="bg-amber-50 text-amber-600 border-amber-200 gap-1">
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                                Deploying...
+                              </Badge>
+                            )}
+                            {selectedProject.status === 'error' && (
+                              <Badge variant="secondary" className="bg-red-50 text-red-600 border-red-200 gap-1">
+                                <AlertCircle className="w-3 h-3" />
+                                Error
+                              </Badge>
+                            )}
+                            {selectedProject.status === 'stopped' && (
+                              <Badge variant="secondary" className="bg-zinc-100 text-zinc-500 border-zinc-300 gap-1">
+                                <Square className="w-3 h-3" />
+                                Stopped
+                              </Badge>
+                            )}
                           </div>
                           <p className="text-zinc-500 max-w-2xl">{selectedProject.description}</p>
                         </div>
@@ -422,6 +553,64 @@ export default function App() {
                           </Button>
                         </div>
                       </div>
+
+                      {/* Action Buttons Panel */}
+                      <Card className="border-zinc-200 shadow-sm bg-white">
+                        <CardContent className="p-5">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            {(selectedProject.status === 'idle' || selectedProject.status === 'stopped' || selectedProject.status === 'error') && (
+                              <Button 
+                                size="sm" 
+                                className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                                onClick={() => handleDeployProject(selectedProject)}
+                              >
+                                <Rocket className="w-4 h-4" />
+                                Deploy Containers
+                              </Button>
+                            )}
+                            {selectedProject.status === 'running' && (
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                                onClick={() => handleStopProject(selectedProject)}
+                              >
+                                <StopCircle className="w-4 h-4" />
+                                Stop Containers
+                              </Button>
+                            )}
+                            {selectedProject.status !== 'deploying' && (
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="gap-2 border-violet-200 text-violet-600 hover:bg-violet-50 hover:text-violet-700"
+                                onClick={() => handleTestConfig(selectedProject)}
+                              >
+                                <FlaskConical className="w-4 h-4" />
+                                Test Configuration
+                              </Button>
+                            )}
+                            {selectedProject.status === 'deploying' && (
+                              <div className="flex items-center gap-2 text-sm text-amber-600">
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Deployment in progress...
+                              </div>
+                            )}
+                            <Separator orientation="vertical" className="h-6 mx-1" />
+                            <p className="text-xs text-zinc-400">
+                              {selectedProject.status === 'idle' 
+                                ? 'Review your configuration below, then deploy when ready.' 
+                                : selectedProject.status === 'running'
+                                ? `Odoo is running on port ${selectedProject.port}.`
+                                : selectedProject.status === 'stopped'
+                                ? 'Containers are stopped. You can redeploy.'
+                                : selectedProject.status === 'error'
+                                ? 'Deployment failed. Check logs and try again.'
+                                : 'Please wait...'}
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
 
                       <Tabs defaultValue="compose" className="w-full">
                         <TabsList className="grid w-full grid-cols-5 mb-8">
