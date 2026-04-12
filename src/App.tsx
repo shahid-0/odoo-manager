@@ -40,6 +40,9 @@ export default function App() {
     config: { ...DEFAULT_PROJECT_CONFIG },
   });
 
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
+
   const logEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -320,15 +323,37 @@ export default function App() {
     );
   };
 
-  const handleDeleteProject = (projectId: string) => {
+  const handleDeleteProject = (project: Project) => {
     if (!selectedOrgId) return;
-    setOrganizations(organizations.map(org => 
-      org.id === selectedOrgId 
-        ? { ...org, projects: org.projects.filter(p => p.id !== projectId) }
-        : org
-    ));
-    if (selectedProjectId === projectId) setSelectedProjectId(null);
-    toast.info('Project deleted');
+
+    toast.promise(
+      async () => {
+        const res = await fetch(`/api/projects/${project.id}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            containerId: project.containerId,
+            dbContainerId: project.dbContainerId,
+            name: project.name
+          })
+        });
+        if (!res.ok) throw new Error('Failed to delete containers');
+        return res.json();
+      },
+      {
+        loading: 'Deleting project and containers...',
+        success: () => {
+          setOrganizations(organizations.map(org => 
+            org.id === selectedOrgId 
+              ? { ...org, projects: org.projects.filter(p => p.id !== project.id) }
+              : org
+          ));
+          if (selectedProjectId === project.id) setSelectedProjectId(null);
+          return 'Project and containers deleted.';
+        },
+        error: 'Failed to completely clean up containers.'
+      }
+    );
   };
 
   const handleCopyCompose = () => {
@@ -629,7 +654,10 @@ export default function App() {
                             <Copy className="w-4 h-4" />
                             Copy YAML
                           </Button>
-                          <Button variant="destructive" size="sm" onClick={() => handleDeleteProject(selectedProject.id)}>
+                          <Button variant="destructive" size="sm" onClick={() => {
+                            setProjectToDelete(selectedProject);
+                            setDeleteConfirmationText('');
+                          }}>
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </div>
@@ -1112,6 +1140,55 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* Delete Project Dialog */}
+      <Dialog open={!!projectToDelete} onOpenChange={(open) => {
+        if (!open) {
+          setProjectToDelete(null);
+          setDeleteConfirmationText('');
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Project</DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. This will permanently delete the <strong>{projectToDelete?.name}</strong> project configuration from your workspace.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Label className="text-zinc-700 mb-2 block">
+              Please type <strong>{projectToDelete?.name}</strong> to confirm.
+            </Label>
+            <Input
+              value={deleteConfirmationText}
+              onChange={(e) => setDeleteConfirmationText(e.target.value)}
+              placeholder={projectToDelete?.name}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setProjectToDelete(null);
+              setDeleteConfirmationText('');
+            }}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              disabled={deleteConfirmationText !== projectToDelete?.name}
+              onClick={() => {
+                if (projectToDelete) {
+                   handleDeleteProject(projectToDelete);
+                   setProjectToDelete(null);
+                   setDeleteConfirmationText('');
+                }
+              }}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete Project
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

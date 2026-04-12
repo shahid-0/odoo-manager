@@ -382,6 +382,44 @@ async function startServer() {
     }
   });
 
+  app.delete("/api/projects/:id", async (req, res) => {
+    const projectId = req.params.id;
+    const { containerId, dbContainerId, name } = req.body;
+    
+    try {
+      if (containerId) {
+        try {
+          const c = docker.getContainer(containerId);
+          await c.remove({ force: true });
+        } catch(e) {}
+      }
+      if (dbContainerId) {
+        try {
+          const dc = docker.getContainer(dbContainerId);
+           await dc.remove({ force: true });
+        } catch(e) {}
+      }
+
+      if (name) {
+        const safeName = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        const dbContainerName = `${safeName}-db-${projectId.slice(0, 8)}`;
+        const odooContainerName = `${safeName}-odoo-${projectId.slice(0, 8)}`;
+        try {
+          const c1 = docker.getContainer(dbContainerName);
+          await c1.remove({ force: true });
+        } catch(e) {}
+        try {
+          const c2 = docker.getContainer(odooContainerName);
+          await c2.remove({ force: true });
+        } catch(e) {}
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
