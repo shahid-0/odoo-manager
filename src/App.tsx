@@ -147,14 +147,14 @@ export default function App() {
     toast.success('Project created! Review your configuration and deploy when ready.');
   };
 
-  const handleDeployProject = async (project: Project) => {
+  const handleDeployProject = async (project: Project, forcePull: boolean = false) => {
     // Update status to deploying
     setOrganizations(prev => prev.map(org => ({
       ...org,
       projects: org.projects.map(p => p.id === project.id ? { 
         ...p, 
         status: 'deploying' as ProjectStatus, 
-        logs: [...(p.logs || []), '[SYSTEM] Initializing deployment...', `[SYSTEM] Using Odoo ${project.config.odooVersion} image...`, '[SYSTEM] Creating Docker network and containers...'] 
+        logs: [...(p.logs || []), `[SYSTEM] ${forcePull ? 'Force pulling latest image and rebuilding...' : 'Initializing deployment...'}`, `[SYSTEM] Using Odoo ${project.config.odooVersion} image...`, '[SYSTEM] Creating Docker network and containers...'] 
       } : p)
     })));
 
@@ -166,7 +166,8 @@ export default function App() {
           body: JSON.stringify({ 
             projectId: project.id, 
             config: project.config,
-            name: project.name 
+            name: project.name,
+            forcePull
           })
         });
         
@@ -708,6 +709,17 @@ export default function App() {
                               >
                                 <StopCircle className="w-4 h-4" />
                                 Stop Containers
+                              </Button>
+                            )}
+                            {selectedProject.status !== 'deploying' && (
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="gap-2 border-indigo-200 text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700"
+                                onClick={() => handleDeployProject(selectedProject, true)}
+                              >
+                                <RefreshCw className="w-4 h-4" />
+                                Rebuild & Pull Latest
                               </Button>
                             )}
                             {selectedProject.status !== 'deploying' && (

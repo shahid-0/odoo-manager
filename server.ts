@@ -24,7 +24,7 @@ async function startServer() {
   });
 
   app.post("/api/projects/deploy", async (req, res) => {
-    const { projectId, config, name } = req.body;
+    const { projectId, config, name, forcePull } = req.body;
     
     try {
       // Check if docker is installed and running
@@ -44,10 +44,10 @@ async function startServer() {
       const odooImage = `odoo:${config.odooVersion}`;
       const dbImage = "postgres:15";
 
-      // Pull images if not available locally
-      await pullImageIfNeeded(odooImage, appendLog);
+      // Pull images if not available locally, or if forced
+      await pullImageIfNeeded(odooImage, appendLog, forcePull);
       if (config.includePostgres) {
-        await pullImageIfNeeded(dbImage, appendLog);
+        await pullImageIfNeeded(dbImage, appendLog, forcePull);
       }
 
       // Create a Docker network for inter-container communication
@@ -482,12 +482,12 @@ function parseMemoryString(memStr: string): number {
 }
 
 /**
- * Helper to pull a Docker image if it's not already available locally.
+ * Helper to pull a Docker image if it's not already available locally, or if forced.
  */
-async function pullImageIfNeeded(imageRef: string, appendLog: (msg: string) => void) {
+async function pullImageIfNeeded(imageRef: string, appendLog: (msg: string) => void, forcePull: boolean = false) {
   const images = await docker.listImages({ filters: { reference: [imageRef] } });
-  if (images.length === 0) {
-    appendLog(`[SYSTEM] Image ${imageRef} not found locally. Starting pull...`);
+  if (images.length === 0 || forcePull) {
+    appendLog(`[SYSTEM] Starting pull for image ${imageRef}...`);
     
     let lastLogTime = 0;
     const layerProgress: Record<string, string> = {};
