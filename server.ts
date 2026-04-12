@@ -16,6 +16,7 @@ async function startServer() {
 
   // Mock database for projects (in a real app, use a real DB)
   let projects: any[] = [];
+  const deploymentLogs: Record<string, string[]> = {};
 
   // API routes
   app.get("/api/projects", (req, res) => {
@@ -29,41 +30,106 @@ async function startServer() {
       // Check if docker is installed and running
       await docker.ping();
       
-      console.log(`Deploying project ${name} (${projectId})...`);
+      const safeName = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      const networkName = `${safeName}-network-${projectId.slice(0, 8)}`;
+      const dbUser = config.dbUser || 'odoo';
+
+      deploymentLogs[projectId] = [`[SYSTEM] Starting deployment for ${name} (${projectId})...`];
+      const appendLog = (msg: string) => {
+        deploymentLogs[projectId].push(msg);
+      };
+
+      appendLog(`[SYSTEM] Checked Docker connection.`);
       
       const odooImage = `odoo:${config.odooVersion}`;
       const dbImage = "postgres:15";
 
-      // Pull images if they don't exist
-      // Note: In a real production environment, you'd handle this as a background task with progress
-      
-      let dbContainer;
+      // Pull images if not available locally
+      await pullImageIfNeeded(odooImage, appendLog);
+      if (config.includePostgres) {
+        await pullImageIfNeeded(dbImage, appendLog);
+      }
+
+      // Create a Docker network for inter-container communication
+      let network;
+      try {
+        network = await docker.createNetwork({
+          Name: networkName,
+          Driver: 'bridge',
+        });
+        console.log(`Created network: ${networkName}`);
+      } catch (e: any) {
+        // If network already exists, use it
+        const networks = await docker.listNetworks({ filters: { name: [networkName] } });
+        if (networks.length > 0) {
+          network = docker.getNetwork(networks[0].Id);
+        } else {
+          throw e;
+        }
+      }
+
+      let dbContainerId: string | undefined;
+
       if (config.includePostgres) {
         console.log("Creating database container...");
-        dbContainer = await docker.createContainer({
+        const dbContainerName = `${safeName}-db-${projectId.slice(0, 8)}`;
+        
+        const dbContainer = await docker.createContainer({
           Image: dbImage,
-          name: `${name.toLowerCase().replace(/\s+/g, '-')}-db-${projectId.slice(0, 8)}`,
+          name: dbContainerName,
           Env: [
             `POSTGRES_DB=${config.dbName}`,
             `POSTGRES_PASSWORD=${config.dbPassword}`,
-            "POSTGRES_USER=odoo"
+            `POSTGRES_USER=${dbUser}`,
+            `PGDATA=/var/lib/postgresql/data/pgdata`,
           ],
           HostConfig: {
-            RestartPolicy: { Name: "always" }
-          }
+            RestartPolicy: { Name: "always" },
+            Binds: [
+              `${safeName}-db-data-${projectId.slice(0, 8)}:/var/lib/postgresql/data/pgdata`,
+            ],
+          },
+          NetworkingConfig: {
+            EndpointsConfig: {
+              [networkName]: {
+                Aliases: ['db'],
+              },
+            },
+          },
         });
         await dbContainer.start();
+        dbContainerId = dbContainer.id;
+        console.log(`Database container started: ${dbContainerName}`);
+
+        // Give PostgreSQL a moment to initialize
+        await new Promise(resolve => setTimeout(resolve, 3000));
       }
 
       console.log("Creating Odoo container...");
+      const odooContainerName = `${safeName}-odoo-${projectId.slice(0, 8)}`;
+
+      // Build volume bindings
+      const binds = [
+        `${safeName}-web-data-${projectId.slice(0, 8)}:/var/lib/odoo`,
+      ];
+
+      // Add custom addons mount if specified
+      if (config.addonsPath && config.addonsPath.trim()) {
+        binds.push(`${path.resolve(config.addonsPath)}:/mnt/extra-addons`);
+      }
+
+      // Add enterprise addons mount if specified
+      if (config.enterpriseAddonsPath && config.enterpriseAddonsPath.trim()) {
+        binds.push(`${path.resolve(config.enterpriseAddonsPath)}:/mnt/enterprise-addons`);
+      }
+
       const odooContainer = await docker.createContainer({
         Image: odooImage,
-        name: `${name.toLowerCase().replace(/\s+/g, '-')}-odoo-${projectId.slice(0, 8)}`,
+        name: odooContainerName,
         Env: [
-          `HOST=${dbContainer ? dbContainer.id.slice(0, 12) : 'localhost'}`,
-          `USER=odoo`,
+          `HOST=db`,
+          `USER=${dbUser}`,
           `PASSWORD=${config.dbPassword}`,
-          `DB_NAME=${config.dbName}`
         ],
         ExposedPorts: {
           "8069/tcp": {}
@@ -73,19 +139,28 @@ async function startServer() {
             "8069/tcp": [{ HostPort: "" }] // Auto-assign a host port
           },
           RestartPolicy: { Name: "always" },
-          Memory: config.resourceLimits.memory ? parseInt(config.resourceLimits.memory) * 1024 * 1024 : undefined,
-          NanoCpus: config.resourceLimits.cpu ? parseFloat(config.resourceLimits.cpu) * 1e9 : undefined
-        }
+          Binds: binds,
+          Memory: config.resourceLimits?.memory ? parseMemoryString(config.resourceLimits.memory) : undefined,
+          NanoCpus: config.resourceLimits?.cpu ? parseFloat(config.resourceLimits.cpu) * 1e9 : undefined,
+        },
+        NetworkingConfig: {
+          EndpointsConfig: {
+            [networkName]: {},
+          },
+        },
       });
       await odooContainer.start();
 
       const inspect = await odooContainer.inspect();
       const port = inspect.NetworkSettings.Ports["8069/tcp"][0].HostPort;
 
+      console.log(`Odoo container started on port ${port}: ${odooContainerName}`);
+
       res.json({ 
         status: "running", 
         message: "Deployment successful",
         containerId: odooContainer.id,
+        dbContainerId: dbContainerId,
         port: port
       });
     } catch (error: any) {
@@ -140,33 +215,49 @@ async function startServer() {
         }
       }
 
-      // Test 4: Validate configuration values
+      // Test 4: Validate Odoo version is supported
+      const supportedVersions = ['17.0', '18.0', '19.0'];
+      if (supportedVersions.includes(config.odooVersion)) {
+        results.push(`Odoo version ${config.odooVersion} is officially supported.`);
+      } else {
+        results.push(`⚠ Warning: Odoo version '${config.odooVersion}' may not be officially supported. Supported versions: ${supportedVersions.join(', ')}.`);
+      }
+
+      // Test 5: Validate configuration values
       if (!config.dbName || config.dbName.trim() === '') {
         results.push("⚠ Warning: Database name is empty.");
       } else {
         results.push(`Database name: '${config.dbName}' — OK.`);
       }
 
+      const dbUser = config.dbUser || 'odoo';
+      results.push(`Database user: '${dbUser}' — OK.`);
+
       if (!config.dbPassword || config.dbPassword.trim() === '') {
         results.push("⚠ Warning: Database password is empty.");
-      } else if (config.dbPassword === 'odoo_password') {
-        results.push("⚠ Warning: Using default password. Change this for production.");
+      } else if (config.dbPassword === 'odoo') {
+        results.push("⚠ Warning: Using default password 'odoo'. Change this for production.");
       } else {
         results.push("Database password is set — OK.");
       }
 
-      // Test 5: Resource limits validation
-      if (config.resourceLimits.memory) {
-        results.push(`Memory limit: ${config.resourceLimits.memory} — OK.`);
+      // Test 6: Resource limits validation
+      if (config.resourceLimits?.memory) {
+        try {
+          const bytes = parseMemoryString(config.resourceLimits.memory);
+          results.push(`Memory limit: ${config.resourceLimits.memory} (${(bytes / 1024 / 1024).toFixed(0)} MB) — OK.`);
+        } catch (e) {
+          results.push(`⚠ Warning: Invalid memory format '${config.resourceLimits.memory}'. Use format like: 512m, 1g, 2g.`);
+        }
       }
-      if (config.resourceLimits.cpu) {
+      if (config.resourceLimits?.cpu) {
         results.push(`CPU limit: ${config.resourceLimits.cpu} — OK.`);
       }
 
-      // Test 6: Check for container name conflicts
+      // Test 7: Check for container name conflicts
       try {
         const containers = await docker.listContainers({ all: true });
-        const safeName = name.toLowerCase().replace(/\s+/g, '-');
+        const safeName = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
         const conflicting = containers.filter((c: any) => 
           c.Names.some((n: string) => n.includes(safeName))
         );
@@ -177,6 +268,17 @@ async function startServer() {
         }
       } catch (e) {
         results.push(`Could not check for container conflicts: ${e}`);
+      }
+
+      // Test 8: Check addons path
+      if (config.addonsPath && config.addonsPath.trim()) {
+        results.push(`Custom addons path: '${config.addonsPath}' will be mounted at /mnt/extra-addons.`);
+      } else {
+        results.push("No custom addons path specified.");
+      }
+
+      if (config.enterpriseAddonsPath && config.enterpriseAddonsPath.trim()) {
+        results.push(`Enterprise addons path: '${config.enterpriseAddonsPath}' will be mounted at /mnt/enterprise-addons.`);
       }
 
       res.json({ status: "ok", results });
@@ -190,8 +292,11 @@ async function startServer() {
 
   app.get("/api/projects/:id/logs", async (req, res) => {
     const containerId = req.query.containerId as string;
-    if (!containerId) {
-      return res.json({ logs: ["[SYSTEM] No container ID provided."] });
+    const projectId = req.params.id;
+
+    if (!containerId || containerId === "undefined") {
+      const logs = deploymentLogs[projectId] || ["[SYSTEM] Waiting for deployment to start..."];
+      return res.json({ logs });
     }
 
     try {
@@ -212,10 +317,20 @@ async function startServer() {
   });
 
   app.post("/api/projects/:id/stop", async (req, res) => {
-    const containerId = req.body.containerId;
+    const { containerId, dbContainerId } = req.body;
     try {
-      const container = docker.getContainer(containerId);
-      await container.stop();
+      // Stop Odoo container
+      if (containerId) {
+        const container = docker.getContainer(containerId);
+        await container.stop();
+        console.log(`Stopped Odoo container: ${containerId.slice(0, 12)}`);
+      }
+      // Stop DB container
+      if (dbContainerId) {
+        const dbContainer = docker.getContainer(dbContainerId);
+        await dbContainer.stop();
+        console.log(`Stopped DB container: ${dbContainerId.slice(0, 12)}`);
+      }
       res.json({ status: "stopped" });
     } catch (error) {
       res.status(500).json({ error: String(error) });
@@ -240,6 +355,83 @@ async function startServer() {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
+}
+
+/**
+ * Parse a Docker memory string like "512m", "1g", "2g" into bytes.
+ */
+function parseMemoryString(memStr: string): number {
+  const match = memStr.trim().toLowerCase().match(/^(\d+(?:\.\d+)?)\s*(b|k|m|g|kb|mb|gb)?$/);
+  if (!match) throw new Error(`Invalid memory format: ${memStr}`);
+  
+  const value = parseFloat(match[1]);
+  const unit = match[2] || 'b';
+  
+  switch (unit) {
+    case 'b': return value;
+    case 'k':
+    case 'kb': return value * 1024;
+    case 'm':
+    case 'mb': return value * 1024 * 1024;
+    case 'g':
+    case 'gb': return value * 1024 * 1024 * 1024;
+    default: return value;
+  }
+}
+
+/**
+ * Helper to pull a Docker image if it's not already available locally.
+ */
+async function pullImageIfNeeded(imageRef: string, appendLog: (msg: string) => void) {
+  const images = await docker.listImages({ filters: { reference: [imageRef] } });
+  if (images.length === 0) {
+    appendLog(`[SYSTEM] Image ${imageRef} not found locally. Starting pull...`);
+    
+    let lastLogTime = 0;
+    const layerProgress: Record<string, string> = {};
+
+    await new Promise((resolve, reject) => {
+      docker.pull(imageRef, (err: Error, stream: NodeJS.ReadableStream) => {
+        if (err) return reject(err);
+        docker.modem.followProgress(stream, onFinished, onProgress);
+
+        function onFinished(err: Error | null, output: any) {
+          if (err) {
+            appendLog(`[ERROR] Failed to pull ${imageRef}: ${err.message}`);
+            return reject(err);
+          }
+          appendLog(`[SYSTEM] ✅ Successfully pulled ${imageRef}.`);
+          resolve(output);
+        }
+
+        function onProgress(event: any) {
+          if (!event.id) return;
+          layerProgress[event.id] = event.status;
+          
+          const now = Date.now();
+          if (now - lastLogTime > 1000) {
+            lastLogTime = now;
+            let downloading = 0;
+            let extracting = 0;
+            let complete = 0;
+            let total = Object.keys(layerProgress).length;
+            
+            for (const id in layerProgress) {
+               const status = layerProgress[id].toLowerCase();
+               if (status.includes('downloading')) downloading++;
+               else if (status.includes('extracting')) extracting++;
+               else if (status.includes('complete') || status.includes('pull complete')) complete++;
+            }
+            if (total > 0) {
+               appendLog(`[SYSTEM] Pulling ${imageRef}: ${complete}/${total} layers complete (Downloading: ${downloading}, Extracting: ${extracting})`);
+            }
+          }
+        }
+      });
+    });
+  } else {
+    appendLog(`[SYSTEM] Image ${imageRef} found locally.`);
+  }
 }
 
 startServer();

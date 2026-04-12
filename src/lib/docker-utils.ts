@@ -2,22 +2,24 @@ import yaml from 'js-yaml';
 import { ProjectConfig } from '../types';
 
 export function generateDockerCompose(projectName: string, config: ProjectConfig): string {
+  const safeName = projectName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+
   const services: any = {
     web: {
       image: `odoo:${config.odooVersion}`,
       depends_on: config.includePostgres ? ['db'] : [],
       ports: ['8069:8069'],
       volumes: [
-        'odoo-data:/var/lib/odoo',
+        'odoo-web-data:/var/lib/odoo',
         './config:/etc/odoo',
         `${config.addonsPath}:/mnt/extra-addons`,
       ],
       environment: [
         `HOST=db`,
-        `USER=odoo`,
+        `USER=${config.dbUser}`,
         `PASSWORD=${config.dbPassword}`,
       ],
-      networks: ['odoo-network'],
+      restart: 'always',
       deploy: {
         replicas: config.replicas,
         resources: {
@@ -43,19 +45,24 @@ export function generateDockerCompose(projectName: string, config: ProjectConfig
     },
   };
 
+  // Add enterprise addons volume if specified
+  if (config.enterpriseAddonsPath && config.enterpriseAddonsPath.trim()) {
+    services.web.volumes.push(`${config.enterpriseAddonsPath}:/mnt/enterprise-addons`);
+  }
+
   if (config.includePostgres) {
     services.db = {
       image: 'postgres:15',
       environment: [
-        `POSTGRES_DB=postgres`,
+        `POSTGRES_DB=${config.dbName}`,
         `POSTGRES_PASSWORD=${config.dbPassword}`,
-        `POSTGRES_USER=odoo`,
+        `POSTGRES_USER=${config.dbUser}`,
         `PGDATA=/var/lib/postgresql/data/pgdata`,
       ],
-      volumes: ['db-data:/var/lib/postgresql/data/pgdata'],
-      networks: ['odoo-network'],
+      volumes: ['odoo-db-data:/var/lib/postgresql/data/pgdata'],
+      restart: 'always',
       healthcheck: {
-        test: ['CMD-SHELL', 'pg_isready -U odoo'],
+        test: ['CMD-SHELL', `pg_isready -U ${config.dbUser}`],
         interval: '10s',
         timeout: '5s',
         retries: 5,
@@ -63,19 +70,13 @@ export function generateDockerCompose(projectName: string, config: ProjectConfig
     };
   }
 
-  const compose = {
-    version: '3.8',
+  const compose: any = {
     services,
-    networks: {
-      'odoo-network': {
-        driver: 'bridge',
-      },
-    },
     volumes: {
-      'odoo-data': {},
-      'db-data': {},
+      'odoo-web-data': {},
+      'odoo-db-data': {},
     },
   };
 
-  return yaml.dump(compose);
+  return yaml.dump(compose, { lineWidth: -1 });
 }

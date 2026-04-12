@@ -1,6 +1,6 @@
 import { OdooVersion } from './types';
 
-export const ODOO_VERSIONS: OdooVersion[] = ['14.0', '15.0', '16.0', '17.0', '18.0'];
+export const ODOO_VERSIONS: OdooVersion[] = ['17.0', '18.0', '19.0'];
 
 export const DEFAULT_ODOO_CONF = `[options]
 addons_path = /mnt/extra-addons
@@ -12,12 +12,14 @@ db_password = odoo
 `;
 
 export const DEFAULT_PROJECT_CONFIG = {
-  odooVersion: '17.0' as OdooVersion,
-  dbName: 'odoo_db',
-  dbPassword: 'odoo_password',
+  odooVersion: '19.0' as OdooVersion,
+  dbName: 'postgres',
+  dbPassword: 'odoo',
+  dbUser: 'odoo',
   odooConf: DEFAULT_ODOO_CONF,
-  addonsPath: './extra-addons',
+  addonsPath: './addons',
   includePostgres: true,
+  enterpriseAddonsPath: '',
   resourceLimits: {
     memory: '1g',
     cpu: '0.5',

@@ -16,6 +16,7 @@ export interface Project {
   status?: ProjectStatus;
   logs?: string[];
   containerId?: string;
+  dbContainerId?: string;
   port?: string;
 }
 
@@ -23,9 +24,11 @@ export interface ProjectConfig {
   odooVersion: string;
   dbName: string;
   dbPassword: string;
+  dbUser: string;
   odooConf: string;
   addonsPath: string;
   includePostgres: boolean;
+  enterpriseAddonsPath: string;
   resourceLimits: {
     memory: string;
     cpu: string;
@@ -41,6 +44,7 @@ export interface ProjectConfig {
     retries: number;
   };
   replicas: number;
+  customCompose?: string;
 }
 
-export type OdooVersion = '14.0' | '15.0' | '16.0' | '17.0' | '18.0';
+export type OdooVersion = '17.0' | '18.0' | '19.0';

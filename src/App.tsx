@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Folder, Building2, Download, Copy, Settings2, Trash2, LayoutDashboard, FileCode, Database, Server, Terminal, Play, Square, RefreshCw, Activity, Rocket, FlaskConical, StopCircle, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { Plus, Folder, Building2, Download, Copy, Settings2, Trash2, LayoutDashboard, FileCode, Database, Server, Terminal, Play, Square, RefreshCw, Activity, Rocket, FlaskConical, StopCircle, CheckCircle2, AlertCircle, Loader2, ExternalLink, Package } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -49,15 +49,36 @@ export default function App() {
   const selectedOrg = organizations.find(org => org.id === selectedOrgId);
   const selectedProject = selectedOrg?.projects.find(p => p.id === selectedProjectId);
 
-  // Periodically fetch logs for the selected project if it's running
+  // Helper to update project-level fields (name, description, etc.)
+  const updateProject = (updates: Partial<Project>) => {
+    if (!selectedOrgId || !selectedProjectId) return;
+    setOrganizations(prev => prev.map(org =>
+      org.id === selectedOrgId
+        ? { ...org, projects: org.projects.map(p => p.id === selectedProjectId ? { ...p, ...updates } : p) }
+        : org
+    ));
+  };
+
+  // Helper to update project config fields (version, db, resources, etc.)
+  const updateProjectConfig = (configUpdates: Partial<ProjectConfig>) => {
+    if (!selectedOrgId || !selectedProjectId) return;
+    setOrganizations(prev => prev.map(org =>
+      org.id === selectedOrgId
+        ? { ...org, projects: org.projects.map(p => p.id === selectedProjectId ? { ...p, config: { ...p.config, ...configUpdates } } : p) }
+        : org
+    ));
+  };
+
+  // Periodically fetch logs for the selected project if it's running or deploying
   useEffect(() => {
-    if (!selectedProjectId || !selectedProject || selectedProject.status !== 'running') return;
+    if (!selectedProjectId || !selectedProject || !['running', 'deploying'].includes(selectedProject.status as string)) return;
 
     const fetchLogs = async () => {
       try {
-        const res = await fetch(`/api/projects/${selectedProjectId}/logs?containerId=${selectedProject.containerId}`);
+        const containerParam = selectedProject.containerId ? `?containerId=${selectedProject.containerId}` : '';
+        const res = await fetch(`/api/projects/${selectedProjectId}/logs${containerParam}`);
         const data = await res.json();
-        if (data.logs) {
+        if (data.logs && data.logs.length > 0) {
           setOrganizations(prev => prev.map(org => ({
             ...org,
             projects: org.projects.map(p => 
@@ -72,9 +93,9 @@ export default function App() {
       }
     };
 
-    const interval = setInterval(fetchLogs, 5000);
+    const interval = setInterval(fetchLogs, 2000);
     return () => clearInterval(interval);
-  }, [selectedProjectId, selectedProject?.status]);
+  }, [selectedProjectId, selectedProject?.status, selectedProject?.containerId]);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -128,7 +149,7 @@ export default function App() {
       projects: org.projects.map(p => p.id === project.id ? { 
         ...p, 
         status: 'deploying' as ProjectStatus, 
-        logs: [...(p.logs || []), '[SYSTEM] Initializing deployment...', '[SYSTEM] Creating Docker containers...'] 
+        logs: [...(p.logs || []), '[SYSTEM] Initializing deployment...', `[SYSTEM] Using Odoo ${project.config.odooVersion} image...`, '[SYSTEM] Creating Docker network and containers...'] 
       } : p)
     })));
 
@@ -160,8 +181,9 @@ export default function App() {
               ...p, 
               status: 'running', 
               containerId: data.containerId,
+              dbContainerId: data.dbContainerId,
               port: data.port,
-              logs: [...(p.logs || []), '[SYSTEM] Containers started successfully.'] 
+              logs: [...(p.logs || []), `[SYSTEM] ✅ Odoo ${project.config.odooVersion} running on port ${data.port}.`] 
             } : p)
           })));
           return 'Containers deployed and running!';
@@ -238,7 +260,10 @@ export default function App() {
         const res = await fetch(`/api/projects/${project.id}/stop`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ containerId: project.containerId })
+          body: JSON.stringify({ 
+            containerId: project.containerId,
+            dbContainerId: project.dbContainerId 
+          })
         });
         if (!res.ok) throw new Error('Failed to stop container');
         return res.json();
@@ -251,7 +276,7 @@ export default function App() {
             projects: org.projects.map(p => p.id === project.id ? { 
               ...p, 
               status: 'stopped', 
-              logs: [...(p.logs || []), '[SYSTEM] Containers stopped.'] 
+              logs: [...(p.logs || []), '[SYSTEM] Odoo and database containers stopped.'] 
             } : p)
           })));
           return 'Containers stopped.';
@@ -274,7 +299,7 @@ export default function App() {
 
   const handleCopyCompose = () => {
     if (!selectedProject) return;
-    const compose = generateDockerCompose(selectedProject.name, selectedProject.config);
+    const compose = selectedProject.config.customCompose ?? generateDockerCompose(selectedProject.name, selectedProject.config);
     navigator.clipboard.writeText(compose);
     toast.success('Docker Compose copied to clipboard');
   };
@@ -369,8 +394,8 @@ export default function App() {
                 </DialogTrigger>
                 <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
-                    <DialogTitle>Create New Project</DialogTitle>
-                    <DialogDescription>Configure your Odoo instance and services.</DialogDescription>
+                    <DialogTitle>Create New Odoo Project</DialogTitle>
+                    <DialogDescription>Configure your Odoo instance. Uses the official <code>odoo</code> Docker image with PostgreSQL.</DialogDescription>
                   </DialogHeader>
                   <div className="grid gap-6 py-4">
                     <div className="grid grid-cols-2 gap-4">
@@ -380,7 +405,7 @@ export default function App() {
                           id="p-name" 
                           value={newProject.name}
                           onChange={e => setNewProject({...newProject, name: e.target.value})}
-                          placeholder="My Awesome Odoo" 
+                          placeholder="My Odoo Instance" 
                         />
                       </div>
                       <div className="space-y-2">
@@ -394,7 +419,9 @@ export default function App() {
                           </SelectTrigger>
                           <SelectContent>
                             {ODOO_VERSIONS.map(v => (
-                              <SelectItem key={v} value={v}>Odoo {v}</SelectItem>
+                              <SelectItem key={v} value={v}>
+                                Odoo {v}{v === '19.0' ? ' (latest)' : ''}
+                              </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -410,13 +437,21 @@ export default function App() {
                       />
                     </div>
                     <Separator />
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-3 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="db-name">Database Name</Label>
                         <Input 
                           id="db-name" 
                           value={newProject.config.dbName}
                           onChange={e => setNewProject({...newProject, config: {...newProject.config, dbName: e.target.value}})}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="db-user">Database User</Label>
+                        <Input 
+                          id="db-user" 
+                          value={newProject.config.dbUser}
+                          onChange={e => setNewProject({...newProject, config: {...newProject.config, dbUser: e.target.value}})}
                         />
                       </div>
                       <div className="space-y-2">
@@ -435,8 +470,9 @@ export default function App() {
                         id="addons" 
                         value={newProject.config.addonsPath}
                         onChange={e => setNewProject({...newProject, config: {...newProject.config, addonsPath: e.target.value}})}
-                        placeholder="./extra-addons" 
+                        placeholder="./addons" 
                       />
+                      <p className="text-[11px] text-zinc-400">Mounted at <code>/mnt/extra-addons</code> inside the container.</p>
                     </div>
                   </div>
                   <DialogFooter>
@@ -544,6 +580,17 @@ export default function App() {
                           <p className="text-zinc-500 max-w-2xl">{selectedProject.description}</p>
                         </div>
                         <div className="flex gap-2">
+                          {selectedProject.status === 'running' && selectedProject.port && (
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="gap-2"
+                              onClick={() => window.open(`http://localhost:${selectedProject.port}`, '_blank')}
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                              Open Odoo
+                            </Button>
+                          )}
                           <Button variant="outline" size="sm" className="gap-2" onClick={handleCopyCompose}>
                             <Copy className="w-4 h-4" />
                             Copy YAML
@@ -601,7 +648,7 @@ export default function App() {
                               {selectedProject.status === 'idle' 
                                 ? 'Review your configuration below, then deploy when ready.' 
                                 : selectedProject.status === 'running'
-                                ? `Odoo is running on port ${selectedProject.port}.`
+                                ? `Odoo ${selectedProject.config.odooVersion} is running on port ${selectedProject.port}.`
                                 : selectedProject.status === 'stopped'
                                 ? 'Containers are stopped. You can redeploy.'
                                 : selectedProject.status === 'error'
@@ -612,8 +659,12 @@ export default function App() {
                         </CardContent>
                       </Card>
 
-                      <Tabs defaultValue="compose" className="w-full">
-                        <TabsList className="grid w-full grid-cols-5 mb-8">
+                      <Tabs defaultValue="settings" className="w-full">
+                        <TabsList className="grid w-full grid-cols-3 mb-8">
+                          <TabsTrigger value="settings" className="gap-2">
+                            <Settings2 className="w-4 h-4" />
+                            Settings
+                          </TabsTrigger>
                           <TabsTrigger value="compose" className="gap-2">
                             <FileCode className="w-4 h-4" />
                             Docker Compose
@@ -622,20 +673,288 @@ export default function App() {
                             <Terminal className="w-4 h-4" />
                             Logs
                           </TabsTrigger>
-                          <TabsTrigger value="config" className="gap-2">
-                            <Settings2 className="w-4 h-4" />
-                            odoo.conf
-                          </TabsTrigger>
-                          <TabsTrigger value="resources" className="gap-2">
-                            <Database className="w-4 h-4" />
-                            Resources
-                          </TabsTrigger>
-                          <TabsTrigger value="guide" className="gap-2">
-                            <FileCode className="w-4 h-4" />
-                            Setup Guide
-                          </TabsTrigger>
                         </TabsList>
-                        
+
+                        {/* ── Settings Tab ── */}
+                        <TabsContent value="settings">
+                          <div className="space-y-6">
+                            
+                            {/* Section: General */}
+                            <Card className="border-zinc-200 shadow-sm">
+                              <CardHeader className="pb-4">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                                    <Server className="w-4 h-4 text-blue-600" />
+                                  </div>
+                                  <div>
+                                    <CardTitle className="text-base">General</CardTitle>
+                                    <CardDescription className="text-xs">Basic project and Odoo version settings</CardDescription>
+                                  </div>
+                                </div>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium text-zinc-500">Project Name</Label>
+                                    <Input
+                                      value={selectedProject.name}
+                                      onChange={e => updateProject({ name: e.target.value })}
+                                    />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium text-zinc-500">Odoo Version</Label>
+                                    <Select
+                                      value={selectedProject.config.odooVersion}
+                                      onValueChange={v => updateProjectConfig({ odooVersion: v })}
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {ODOO_VERSIONS.map(v => (
+                                          <SelectItem key={v} value={v}>
+                                            Odoo {v}{v === '19.0' ? ' (latest)' : ''}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    <p className="text-[11px] text-zinc-400">Official Docker image from <code>hub.docker.com/_/odoo</code></p>
+                                  </div>
+                                  <div className="col-span-2 space-y-1.5">
+                                    <Label className="text-xs font-medium text-zinc-500">Description</Label>
+                                    <Textarea
+                                      value={selectedProject.description}
+                                      onChange={e => updateProject({ description: e.target.value })}
+                                      placeholder="What is this project for?"
+                                      className="resize-none h-20"
+                                    />
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+
+                            {/* Section: Addons */}
+                            <Card className="border-zinc-200 shadow-sm">
+                              <CardHeader className="pb-4">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
+                                    <Package className="w-4 h-4 text-indigo-600" />
+                                  </div>
+                                  <div>
+                                    <CardTitle className="text-base">Addons</CardTitle>
+                                    <CardDescription className="text-xs">Custom and enterprise addon module paths</CardDescription>
+                                  </div>
+                                </div>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium text-zinc-500">Custom Addons Path</Label>
+                                    <Input
+                                      value={selectedProject.config.addonsPath}
+                                      onChange={e => updateProjectConfig({ addonsPath: e.target.value })}
+                                      placeholder="./addons"
+                                    />
+                                    <p className="text-[11px] text-zinc-400">Mounted at <code>/mnt/extra-addons</code> inside the container.</p>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium text-zinc-500">Enterprise Addons Path</Label>
+                                    <Input
+                                      value={selectedProject.config.enterpriseAddonsPath}
+                                      onChange={e => updateProjectConfig({ enterpriseAddonsPath: e.target.value })}
+                                      placeholder="./enterprise (optional)"
+                                    />
+                                    <p className="text-[11px] text-zinc-400">Mounted at <code>/mnt/enterprise-addons</code>. Leave empty if not using Enterprise.</p>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+
+                            {/* Section: Database */}
+                            <Card className="border-zinc-200 shadow-sm">
+                              <CardHeader className="pb-4">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+                                    <Database className="w-4 h-4 text-emerald-600" />
+                                  </div>
+                                  <div>
+                                    <CardTitle className="text-base">Database</CardTitle>
+                                    <CardDescription className="text-xs">PostgreSQL 15 connection settings</CardDescription>
+                                  </div>
+                                </div>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="grid grid-cols-3 gap-4">
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium text-zinc-500">Database Name</Label>
+                                    <Input
+                                      value={selectedProject.config.dbName}
+                                      onChange={e => updateProjectConfig({ dbName: e.target.value })}
+                                    />
+                                    <p className="text-[11px] text-zinc-400">Maps to <code>POSTGRES_DB</code></p>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium text-zinc-500">Database User</Label>
+                                    <Input
+                                      value={selectedProject.config.dbUser}
+                                      onChange={e => updateProjectConfig({ dbUser: e.target.value })}
+                                    />
+                                    <p className="text-[11px] text-zinc-400">Maps to <code>POSTGRES_USER</code> and Odoo <code>USER</code></p>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium text-zinc-500">Database Password</Label>
+                                    <Input
+                                      type="password"
+                                      value={selectedProject.config.dbPassword}
+                                      onChange={e => updateProjectConfig({ dbPassword: e.target.value })}
+                                    />
+                                    {selectedProject.config.dbPassword === 'odoo' && (
+                                      <p className="text-[11px] text-amber-500">⚠ Default password — change for production.</p>
+                                    )}
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+
+                            {/* Section: Resources */}
+                            <Card className="border-zinc-200 shadow-sm">
+                              <CardHeader className="pb-4">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center">
+                                    <Activity className="w-4 h-4 text-violet-600" />
+                                  </div>
+                                  <div>
+                                    <CardTitle className="text-base">Resources & Scaling</CardTitle>
+                                    <CardDescription className="text-xs">CPU, memory limits and replica count</CardDescription>
+                                  </div>
+                                </div>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="grid grid-cols-3 gap-4">
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium text-zinc-500">Memory Limit</Label>
+                                    <Input
+                                      value={selectedProject.config.resourceLimits.memory}
+                                      onChange={e => updateProjectConfig({ resourceLimits: { ...selectedProject.config.resourceLimits, memory: e.target.value } })}
+                                      placeholder="1g"
+                                    />
+                                    <p className="text-[11px] text-zinc-400">e.g. 512m, 1g, 2g</p>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium text-zinc-500">CPU Limit</Label>
+                                    <Input
+                                      value={selectedProject.config.resourceLimits.cpu}
+                                      onChange={e => updateProjectConfig({ resourceLimits: { ...selectedProject.config.resourceLimits, cpu: e.target.value } })}
+                                      placeholder="0.5"
+                                    />
+                                    <p className="text-[11px] text-zinc-400">e.g. 0.5 = half a core</p>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium text-zinc-500">Replicas</Label>
+                                    <Input
+                                      type="number"
+                                      min={1}
+                                      value={selectedProject.config.replicas}
+                                      onChange={e => updateProjectConfig({ replicas: parseInt(e.target.value) || 1 })}
+                                    />
+                                    <p className="text-[11px] text-zinc-400">Number of Odoo instances</p>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+
+                            {/* Section: Logging & Health */}
+                            <Card className="border-zinc-200 shadow-sm">
+                              <CardHeader className="pb-4">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
+                                    <FileCode className="w-4 h-4 text-amber-600" />
+                                  </div>
+                                  <div>
+                                    <CardTitle className="text-base">Logging & Health Check</CardTitle>
+                                    <CardDescription className="text-xs">Container log rotation and health monitoring</CardDescription>
+                                  </div>
+                                </div>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="grid grid-cols-2 gap-4 mb-4">
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium text-zinc-500">Log Max Size</Label>
+                                    <Input
+                                      value={selectedProject.config.loggingConfig.maxSize}
+                                      onChange={e => updateProjectConfig({ loggingConfig: { ...selectedProject.config.loggingConfig, maxSize: e.target.value } })}
+                                      placeholder="10m"
+                                    />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium text-zinc-500">Log Max Files</Label>
+                                    <Input
+                                      value={selectedProject.config.loggingConfig.maxFile}
+                                      onChange={e => updateProjectConfig({ loggingConfig: { ...selectedProject.config.loggingConfig, maxFile: e.target.value } })}
+                                      placeholder="3"
+                                    />
+                                  </div>
+                                </div>
+                                <Separator className="my-4" />
+                                <div className="grid grid-cols-3 gap-4">
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium text-zinc-500">Health Check Interval</Label>
+                                    <Input
+                                      value={selectedProject.config.healthCheck.interval}
+                                      onChange={e => updateProjectConfig({ healthCheck: { ...selectedProject.config.healthCheck, interval: e.target.value } })}
+                                      placeholder="30s"
+                                    />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium text-zinc-500">Health Check Timeout</Label>
+                                    <Input
+                                      value={selectedProject.config.healthCheck.timeout}
+                                      onChange={e => updateProjectConfig({ healthCheck: { ...selectedProject.config.healthCheck, timeout: e.target.value } })}
+                                      placeholder="10s"
+                                    />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium text-zinc-500">Health Check Retries</Label>
+                                    <Input
+                                      type="number"
+                                      min={1}
+                                      value={selectedProject.config.healthCheck.retries}
+                                      onChange={e => updateProjectConfig({ healthCheck: { ...selectedProject.config.healthCheck, retries: parseInt(e.target.value) || 3 } })}
+                                    />
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+
+                            {/* Section: Odoo Config File */}
+                            <Card className="border-zinc-200 shadow-sm">
+                              <CardHeader className="pb-4">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center">
+                                    <Settings2 className="w-4 h-4 text-zinc-600" />
+                                  </div>
+                                  <div>
+                                    <CardTitle className="text-base">odoo.conf</CardTitle>
+                                    <CardDescription className="text-xs">Raw Odoo configuration file — mounted inside the container at <code>/etc/odoo</code></CardDescription>
+                                  </div>
+                                </div>
+                              </CardHeader>
+                              <CardContent>
+                                <Textarea
+                                  className="font-mono text-sm min-h-[200px] bg-zinc-50 border-zinc-200"
+                                  value={selectedProject.config.odooConf}
+                                  onChange={e => updateProjectConfig({ odooConf: e.target.value })}
+                                />
+                                <p className="text-[11px] text-zinc-400 mt-2">
+                                  See the <a href="https://github.com/odoo/docker/blob/master/17.0/odoo.conf" target="_blank" rel="noopener noreferrer" className="underline text-blue-500 hover:text-blue-600">official template</a> for reference.
+                                </p>
+                              </CardContent>
+                            </Card>
+
+                          </div>
+                        </TabsContent>
+
+                        {/* ── Docker Compose Tab ── */}
                         <TabsContent value="compose">
                           <Card className="border-zinc-200 shadow-sm overflow-hidden">
                             <CardHeader className="bg-zinc-900 text-white py-3 px-6 flex flex-row items-center justify-between">
@@ -643,16 +962,44 @@ export default function App() {
                                 <FileCode className="w-4 h-4 text-zinc-400" />
                                 <span className="text-xs font-mono">docker-compose.yml</span>
                               </div>
-                              <Badge variant="secondary" className="bg-zinc-800 text-zinc-300 border-zinc-700">YAML</Badge>
+                              <div className="flex items-center gap-2">
+                                {selectedProject.config.customCompose !== undefined && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 text-[10px] text-zinc-400 hover:text-white hover:bg-zinc-800 gap-1"
+                                    onClick={() => {
+                                      updateProjectConfig({ customCompose: undefined });
+                                      toast.info('Reset to auto-generated compose file.');
+                                    }}
+                                  >
+                                    <RefreshCw className="w-3 h-3" />
+                                    Reset to Generated
+                                  </Button>
+                                )}
+                                <Badge variant="secondary" className="bg-zinc-800 text-zinc-300 border-zinc-700">
+                                  {selectedProject.config.customCompose !== undefined ? 'CUSTOM' : 'AUTO'}
+                                </Badge>
+                              </div>
                             </CardHeader>
                             <CardContent className="p-0">
-                              <pre className="p-6 bg-zinc-950 text-zinc-300 text-sm font-mono overflow-x-auto leading-relaxed">
-                                {generateDockerCompose(selectedProject.name, selectedProject.config)}
-                              </pre>
+                              <Textarea
+                                className="font-mono text-sm bg-zinc-950 text-zinc-300 border-none rounded-none min-h-[500px] focus-visible:ring-0 focus-visible:ring-offset-0 p-6 leading-relaxed resize-none"
+                                value={selectedProject.config.customCompose ?? generateDockerCompose(selectedProject.name, selectedProject.config)}
+                                onChange={e => updateProjectConfig({ customCompose: e.target.value })}
+                              />
                             </CardContent>
+                            <CardFooter className="bg-zinc-900 border-t border-zinc-800 py-2.5 px-6">
+                              <p className="text-[11px] text-zinc-500">
+                                {selectedProject.config.customCompose !== undefined
+                                  ? 'You are editing a custom compose file. Settings changes won\'t affect this until you reset.'
+                                  : 'This file is auto-generated from your Settings. Edit it to switch to a custom compose file.'}
+                              </p>
+                            </CardFooter>
                           </Card>
                         </TabsContent>
 
+                        {/* ── Logs Tab ── */}
                         <TabsContent value="logs">
                           <Card className="border-zinc-200 shadow-sm overflow-hidden bg-zinc-950">
                             <CardHeader className="border-b border-zinc-800 py-3 px-6 flex flex-row items-center justify-between">
@@ -675,7 +1022,12 @@ export default function App() {
                                   {(selectedProject.logs || []).map((log, i) => (
                                     <div key={i} className="flex gap-4">
                                       <span className="text-zinc-600 shrink-0">[{i + 1}]</span>
-                                      <span className={log.startsWith('[SYSTEM]') ? 'text-blue-400' : 'text-zinc-300'}>
+                                      <span className={
+                                        log.startsWith('[SYSTEM]') ? 'text-blue-400' : 
+                                        log.startsWith('[TEST]') ? 'text-violet-400' :
+                                        log.startsWith('[ERROR]') ? 'text-red-400' :
+                                        'text-zinc-300'
+                                      }>
                                         {log}
                                       </span>
                                     </div>
@@ -686,245 +1038,7 @@ export default function App() {
                             </CardContent>
                           </Card>
                         </TabsContent>
-
-                        <TabsContent value="config">
-                          <Card className="border-zinc-200 shadow-sm">
-                            <CardHeader>
-                              <CardTitle className="text-lg">Odoo Configuration</CardTitle>
-                              <CardDescription>Edit your odoo.conf file directly.</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                              <Textarea 
-                                className="font-mono text-sm min-h-[400px] bg-zinc-50"
-                                value={selectedProject.config.odooConf}
-                                onChange={e => {
-                                  const updatedOrgs = organizations.map(org => 
-                                    org.id === selectedOrgId 
-                                      ? { 
-                                          ...org, 
-                                          projects: org.projects.map(p => 
-                                            p.id === selectedProject.id 
-                                              ? { ...p, config: { ...p.config, odooConf: e.target.value } }
-                                              : p
-                                          ) 
-                                        }
-                                      : org
-                                  );
-                                  setOrganizations(updatedOrgs);
-                                }}
-                              />
-                            </CardContent>
-                          </Card>
-                        </TabsContent>
-
-                        <TabsContent value="resources">
-                          <div className="grid grid-cols-2 gap-6">
-                            <Card className="border-zinc-200 shadow-sm">
-                              <CardHeader>
-                                <CardTitle className="text-lg flex items-center gap-2">
-                                  <Server className="w-4 h-4" />
-                                  Resource Limits
-                                </CardTitle>
-                              </CardHeader>
-                              <CardContent className="space-y-4">
-                                <div className="space-y-2">
-                                  <Label>Memory Limit</Label>
-                                  <Input 
-                                    value={selectedProject.config.resourceLimits.memory}
-                                    onChange={e => {
-                                      const updatedOrgs = organizations.map(org => 
-                                        org.id === selectedOrgId 
-                                          ? { 
-                                              ...org, 
-                                              projects: org.projects.map(p => 
-                                                p.id === selectedProject.id 
-                                                  ? { ...p, config: { ...p.config, resourceLimits: { ...p.config.resourceLimits, memory: e.target.value } } }
-                                                  : p
-                                              ) 
-                                            }
-                                          : org
-                                      );
-                                      setOrganizations(updatedOrgs);
-                                    }}
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label>CPU Limit</Label>
-                                  <Input 
-                                    value={selectedProject.config.resourceLimits.cpu}
-                                    onChange={e => {
-                                      const updatedOrgs = organizations.map(org => 
-                                        org.id === selectedOrgId 
-                                          ? { 
-                                              ...org, 
-                                              projects: org.projects.map(p => 
-                                                p.id === selectedProject.id 
-                                                  ? { ...p, config: { ...p.config, resourceLimits: { ...p.config.resourceLimits, cpu: e.target.value } } }
-                                                  : p
-                                              ) 
-                                            }
-                                          : org
-                                      );
-                                      setOrganizations(updatedOrgs);
-                                    }}
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label>Replicas (Scaling)</Label>
-                                  <Input 
-                                    type="number"
-                                    value={selectedProject.config.replicas}
-                                    onChange={e => {
-                                      const updatedOrgs = organizations.map(org => 
-                                        org.id === selectedOrgId 
-                                          ? { 
-                                              ...org, 
-                                              projects: org.projects.map(p => 
-                                                p.id === selectedProject.id 
-                                                  ? { ...p, config: { ...p.config, replicas: parseInt(e.target.value) || 1 } }
-                                                  : p
-                                              ) 
-                                            }
-                                          : org
-                                      );
-                                      setOrganizations(updatedOrgs);
-                                    }}
-                                  />
-                                </div>
-                              </CardContent>
-                            </Card>
-
-                            <Card className="border-zinc-200 shadow-sm">
-                              <CardHeader>
-                                <CardTitle className="text-lg flex items-center gap-2">
-                                  <FileCode className="w-4 h-4" />
-                                  Logging & Health
-                                </CardTitle>
-                              </CardHeader>
-                              <CardContent className="space-y-4">
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div className="space-y-2">
-                                    <Label>Log Max Size</Label>
-                                    <Input 
-                                      value={selectedProject.config.loggingConfig.maxSize}
-                                      onChange={e => {
-                                        const updatedOrgs = organizations.map(org => 
-                                          org.id === selectedOrgId 
-                                            ? { 
-                                                ...org, 
-                                                projects: org.projects.map(p => 
-                                                  p.id === selectedProject.id 
-                                                    ? { ...p, config: { ...p.config, loggingConfig: { ...p.config.loggingConfig, maxSize: e.target.value } } }
-                                                    : p
-                                                ) 
-                                              }
-                                            : org
-                                        );
-                                        setOrganizations(updatedOrgs);
-                                      }}
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label>Log Max Files</Label>
-                                    <Input 
-                                      value={selectedProject.config.loggingConfig.maxFile}
-                                      onChange={e => {
-                                        const updatedOrgs = organizations.map(org => 
-                                          org.id === selectedOrgId 
-                                            ? { 
-                                                ...org, 
-                                                projects: org.projects.map(p => 
-                                                  p.id === selectedProject.id 
-                                                    ? { ...p, config: { ...p.config, loggingConfig: { ...p.config.loggingConfig, maxFile: e.target.value } } }
-                                                    : p
-                                                ) 
-                                              }
-                                            : org
-                                        );
-                                        setOrganizations(updatedOrgs);
-                                      }}
-                                    />
-                                  </div>
-                                </div>
-                                <Separator />
-                                <div className="space-y-2">
-                                  <Label>Health Interval</Label>
-                                  <Input 
-                                    value={selectedProject.config.healthCheck.interval}
-                                    onChange={e => {
-                                      const updatedOrgs = organizations.map(org => 
-                                        org.id === selectedOrgId 
-                                          ? { 
-                                              ...org, 
-                                              projects: org.projects.map(p => 
-                                                p.id === selectedProject.id 
-                                                  ? { ...p, config: { ...p.config, healthCheck: { ...p.config.healthCheck, interval: e.target.value } } }
-                                                  : p
-                                              ) 
-                                            }
-                                          : org
-                                      );
-                                      setOrganizations(updatedOrgs);
-                                    }}
-                                  />
-                                </div>
-                              </CardContent>
-                            </Card>
-                          </div>
-                        </TabsContent>
-
-                        <TabsContent value="guide">
-                          <Card className="border-zinc-200 shadow-sm">
-                            <CardHeader>
-                              <CardTitle>Setup & Security Guide</CardTitle>
-                              <CardDescription>Best practices for deploying your Odoo instance.</CardDescription>
-                            </CardHeader>
-                            <CardContent className="prose prose-zinc max-w-none text-sm space-y-6">
-                              <section>
-                                <h4 className="font-bold text-zinc-900 mb-2">1. Directory Structure</h4>
-                                <pre className="bg-zinc-100 p-4 rounded-lg text-xs">
-{`project-folder/
-├── docker-compose.yml
-├── config/
-│   └── odoo.conf
-└── extra-addons/ (your custom modules)`}
-                                </pre>
-                              </section>
-
-                              <section>
-                                <h4 className="font-bold text-zinc-900 mb-2">2. Security Best Practices</h4>
-                                <ul className="list-disc pl-5 space-y-2 text-zinc-600">
-                                  <li><strong>Secrets Management:</strong> Avoid hardcoding passwords in the compose file for production. Use Docker Secrets or an <code className="bg-zinc-100 px-1 rounded">.env</code> file.</li>
-                                  <li><strong>Network Isolation:</strong> The generated file uses a bridge network to isolate Odoo and Postgres from other containers.</li>
-                                  <li><strong>Database Security:</strong> Change the default <code className="bg-zinc-100 px-1 rounded">odoo</code> user password and ensure the database port (5432) is NOT exposed to the public internet.</li>
-                                  <li><strong>Resource Limits:</strong> We have included CPU and Memory limits to prevent a single container from crashing the host.</li>
-                                </ul>
-                              </section>
-
-                              <section>
-                                <h4 className="font-bold text-zinc-900 mb-2">3. Scaling & Updates</h4>
-                                <ul className="list-disc pl-5 space-y-2 text-zinc-600">
-                                  <li><strong>Scaling:</strong> Use <code className="bg-zinc-100 px-1 rounded">docker-compose up --scale web=3</code> to run multiple Odoo instances (requires a load balancer like Nginx).</li>
-                                  <li><strong>Updates:</strong> To update Odoo, change the version in the UI, copy the new YAML, and run <code className="bg-zinc-100 px-1 rounded">docker-compose pull && docker-compose up -d</code>.</li>
-                                </ul>
-                              </section>
-                            </CardContent>
-                          </Card>
-                        </TabsContent>
                       </Tabs>
-
-                      <Card className="bg-zinc-900 text-white border-none">
-                        <CardHeader>
-                          <CardTitle className="text-lg">Deployment Instructions</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4 text-zinc-400 text-sm">
-                          <p>1. Create a directory for your project: <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">mkdir {selectedProject.name.toLowerCase().replace(/\s+/g, '-')}</code></p>
-                          <p>2. Create a <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">docker-compose.yml</code> file and paste the generated YAML.</p>
-                          <p>3. Create a <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">config/odoo.conf</code> file and paste the configuration.</p>
-                          <p>4. Ensure your addons directory exists at <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">{selectedProject.config.addonsPath}</code>.</p>
-                          <p>5. Run <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded">docker-compose up -d</code> to start the instance.</p>
-                        </CardContent>
-                      </Card>
                     </motion.div>
                   ) : (
                     <div className="h-full flex flex-col items-center justify-center text-center">
@@ -957,4 +1071,3 @@ export default function App() {
     </div>
   );
 }
-
