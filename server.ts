@@ -120,15 +120,13 @@ async function startServer() {
         `${safeName}-web-data-${projectId.slice(0, 8)}:/var/lib/odoo`,
       ];
 
-      // Add custom addons mount if specified
-      if (config.addonsPath && config.addonsPath.trim()) {
-        binds.push(`${path.resolve(config.addonsPath)}:/mnt/extra-addons`);
-      }
-
-      // Add enterprise addons mount if specified
-      if (config.enterpriseAddonsPath && config.enterpriseAddonsPath.trim()) {
-        binds.push(`${path.resolve(config.enterpriseAddonsPath)}:/mnt/enterprise-addons`);
-      }
+      // Add custom addon mounts from array
+      const addonsPaths = config.addonsPaths || [];
+      addonsPaths.forEach((p: string, i: number) => {
+        if (p && p.trim()) {
+           binds.push(`${path.resolve(p.trim())}:/mnt/extra-addons-${i}`);
+        }
+      });
 
       try {
         const existingOdoo = docker.getContainer(odooContainerName);
@@ -150,7 +148,7 @@ async function startServer() {
         },
         HostConfig: {
           PortBindings: {
-            "8069/tcp": [{ HostPort: "" }] // Auto-assign a host port
+            "8069/tcp": [{ HostPort: String(config.hostPort || 8069) }]
           },
           RestartPolicy: { Name: "always" },
           Binds: binds,

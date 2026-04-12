@@ -8,11 +8,10 @@ export function generateDockerCompose(projectName: string, config: ProjectConfig
     web: {
       image: `odoo:${config.odooVersion}`,
       depends_on: config.includePostgres ? ['db'] : [],
-      ports: ['8069:8069'],
+      ports: [`${config.hostPort || 8069}:8069`],
       volumes: [
         'odoo-web-data:/var/lib/odoo',
         './config:/etc/odoo',
-        `${config.addonsPath}:/mnt/extra-addons`,
       ],
       environment: [
         `HOST=db`,
@@ -20,15 +19,7 @@ export function generateDockerCompose(projectName: string, config: ProjectConfig
         `PASSWORD=${config.dbPassword}`,
       ],
       restart: 'always',
-      deploy: {
-        replicas: config.replicas,
-        resources: {
-          limits: {
-            cpus: config.resourceLimits.cpu,
-            memory: config.resourceLimits.memory,
-          },
-        },
-      },
+
       logging: {
         driver: config.loggingConfig.driver,
         options: {
@@ -45,11 +36,12 @@ export function generateDockerCompose(projectName: string, config: ProjectConfig
     },
   };
 
-  // Add enterprise addons volume if specified
-  if (config.enterpriseAddonsPath && config.enterpriseAddonsPath.trim()) {
-    services.web.volumes.push(`${config.enterpriseAddonsPath}:/mnt/enterprise-addons`);
-  }
-
+  const addonsPaths = config.addonsPaths || [];
+  addonsPaths.forEach((path, i) => {
+    if (path.trim()) {
+      services.web.volumes.push(`${path.trim()}:/mnt/extra-addons-${i}`);
+    }
+  });
   if (config.includePostgres) {
     services.db = {
       image: 'postgres:15',

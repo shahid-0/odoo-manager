@@ -22,17 +22,13 @@ export interface Project {
 
 export interface ProjectConfig {
   odooVersion: string;
+  hostPort: number;
   dbName: string;
   dbPassword: string;
   dbUser: string;
   odooConf: string;
-  addonsPath: string;
+  addonsPaths: string[];
   includePostgres: boolean;
-  enterpriseAddonsPath: string;
-  resourceLimits: {
-    memory: string;
-    cpu: string;
-  };
   loggingConfig: {
     driver: string;
     maxSize: string;
@@ -43,7 +39,6 @@ export interface ProjectConfig {
     timeout: string;
     retries: number;
   };
-  replicas: number;
   customCompose?: string;
 }
 

@@ -43,6 +43,8 @@ export default function App() {
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
 
+  const [showAdvancedCompose, setShowAdvancedCompose] = useState(false);
+
   const logEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -457,7 +459,7 @@ export default function App() {
                     <DialogDescription>Configure your Odoo instance. Uses the official <code>odoo</code> Docker image with PostgreSQL.</DialogDescription>
                   </DialogHeader>
                   <div className="grid gap-6 py-4">
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-3 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="p-name">Project Name</Label>
                         <Input 
@@ -465,6 +467,16 @@ export default function App() {
                           value={newProject.name}
                           onChange={e => setNewProject({...newProject, name: e.target.value})}
                           placeholder="My Odoo Instance" 
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="p-port">Host Port</Label>
+                        <Input 
+                          id="p-port" 
+                          type="number"
+                          value={newProject.config.hostPort || ''}
+                          onChange={e => setNewProject({...newProject, config: {...newProject.config, hostPort: parseInt(e.target.value) || 8069}})}
+                          placeholder="8069" 
                         />
                       </div>
                       <div className="space-y-2">
@@ -751,7 +763,7 @@ export default function App() {
                         <TabsContent value="settings">
                           <div className="space-y-6">
                             
-                            {/* Section: General */}
+                            {/* Section: Project Details */}
                             <Card className="border-zinc-200 shadow-sm">
                               <CardHeader className="pb-4">
                                 <div className="flex items-center gap-2">
@@ -759,13 +771,13 @@ export default function App() {
                                     <Server className="w-4 h-4 text-blue-600" />
                                   </div>
                                   <div>
-                                    <CardTitle className="text-base">General</CardTitle>
-                                    <CardDescription className="text-xs">Basic project and Odoo version settings</CardDescription>
+                                    <CardTitle className="text-base">Project Details</CardTitle>
+                                    <CardDescription className="text-xs">Basic metadata</CardDescription>
                                   </div>
                                 </div>
                               </CardHeader>
                               <CardContent>
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 gap-4">
                                   <div className="space-y-1.5">
                                     <Label className="text-xs font-medium text-zinc-500">Project Name</Label>
                                     <Input
@@ -774,224 +786,12 @@ export default function App() {
                                     />
                                   </div>
                                   <div className="space-y-1.5">
-                                    <Label className="text-xs font-medium text-zinc-500">Odoo Version</Label>
-                                    <Select
-                                      value={selectedProject.config.odooVersion}
-                                      onValueChange={v => updateProjectConfig({ odooVersion: v })}
-                                    >
-                                      <SelectTrigger>
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {ODOO_VERSIONS.map(v => (
-                                          <SelectItem key={v} value={v}>
-                                            Odoo {v}{v === '19.0' ? ' (latest)' : ''}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                    <p className="text-[11px] text-zinc-400">Official Docker image from <code>hub.docker.com/_/odoo</code></p>
-                                  </div>
-                                  <div className="col-span-2 space-y-1.5">
                                     <Label className="text-xs font-medium text-zinc-500">Description</Label>
                                     <Textarea
                                       value={selectedProject.description}
                                       onChange={e => updateProject({ description: e.target.value })}
                                       placeholder="What is this project for?"
                                       className="resize-none h-20"
-                                    />
-                                  </div>
-                                </div>
-                              </CardContent>
-                            </Card>
-
-                            {/* Section: Addons */}
-                            <Card className="border-zinc-200 shadow-sm">
-                              <CardHeader className="pb-4">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
-                                    <Package className="w-4 h-4 text-indigo-600" />
-                                  </div>
-                                  <div>
-                                    <CardTitle className="text-base">Addons</CardTitle>
-                                    <CardDescription className="text-xs">Custom and enterprise addon module paths</CardDescription>
-                                  </div>
-                                </div>
-                              </CardHeader>
-                              <CardContent>
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs font-medium text-zinc-500">Custom Addons Path</Label>
-                                    <Input
-                                      value={selectedProject.config.addonsPath}
-                                      onChange={e => updateProjectConfig({ addonsPath: e.target.value })}
-                                      placeholder="./addons"
-                                    />
-                                    <p className="text-[11px] text-zinc-400">Mounted at <code>/mnt/extra-addons</code> inside the container.</p>
-                                  </div>
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs font-medium text-zinc-500">Enterprise Addons Path</Label>
-                                    <Input
-                                      value={selectedProject.config.enterpriseAddonsPath}
-                                      onChange={e => updateProjectConfig({ enterpriseAddonsPath: e.target.value })}
-                                      placeholder="./enterprise (optional)"
-                                    />
-                                    <p className="text-[11px] text-zinc-400">Mounted at <code>/mnt/enterprise-addons</code>. Leave empty if not using Enterprise.</p>
-                                  </div>
-                                </div>
-                              </CardContent>
-                            </Card>
-
-                            {/* Section: Database */}
-                            <Card className="border-zinc-200 shadow-sm">
-                              <CardHeader className="pb-4">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
-                                    <Database className="w-4 h-4 text-emerald-600" />
-                                  </div>
-                                  <div>
-                                    <CardTitle className="text-base">Database</CardTitle>
-                                    <CardDescription className="text-xs">PostgreSQL 15 connection settings</CardDescription>
-                                  </div>
-                                </div>
-                              </CardHeader>
-                              <CardContent>
-                                <div className="grid grid-cols-3 gap-4">
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs font-medium text-zinc-500">Database Name</Label>
-                                    <Input
-                                      value={selectedProject.config.dbName}
-                                      onChange={e => updateProjectConfig({ dbName: e.target.value })}
-                                    />
-                                    <p className="text-[11px] text-zinc-400">Maps to <code>POSTGRES_DB</code></p>
-                                  </div>
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs font-medium text-zinc-500">Database User</Label>
-                                    <Input
-                                      value={selectedProject.config.dbUser}
-                                      onChange={e => updateProjectConfig({ dbUser: e.target.value })}
-                                    />
-                                    <p className="text-[11px] text-zinc-400">Maps to <code>POSTGRES_USER</code> and Odoo <code>USER</code></p>
-                                  </div>
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs font-medium text-zinc-500">Database Password</Label>
-                                    <Input
-                                      type="password"
-                                      value={selectedProject.config.dbPassword}
-                                      onChange={e => updateProjectConfig({ dbPassword: e.target.value })}
-                                    />
-                                    {selectedProject.config.dbPassword === 'odoo' && (
-                                      <p className="text-[11px] text-amber-500">⚠ Default password — change for production.</p>
-                                    )}
-                                  </div>
-                                </div>
-                              </CardContent>
-                            </Card>
-
-                            {/* Section: Resources */}
-                            <Card className="border-zinc-200 shadow-sm">
-                              <CardHeader className="pb-4">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center">
-                                    <Activity className="w-4 h-4 text-violet-600" />
-                                  </div>
-                                  <div>
-                                    <CardTitle className="text-base">Resources & Scaling</CardTitle>
-                                    <CardDescription className="text-xs">CPU, memory limits and replica count</CardDescription>
-                                  </div>
-                                </div>
-                              </CardHeader>
-                              <CardContent>
-                                <div className="grid grid-cols-3 gap-4">
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs font-medium text-zinc-500">Memory Limit</Label>
-                                    <Input
-                                      value={selectedProject.config.resourceLimits.memory}
-                                      onChange={e => updateProjectConfig({ resourceLimits: { ...selectedProject.config.resourceLimits, memory: e.target.value } })}
-                                      placeholder="1g"
-                                    />
-                                    <p className="text-[11px] text-zinc-400">e.g. 512m, 1g, 2g</p>
-                                  </div>
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs font-medium text-zinc-500">CPU Limit</Label>
-                                    <Input
-                                      value={selectedProject.config.resourceLimits.cpu}
-                                      onChange={e => updateProjectConfig({ resourceLimits: { ...selectedProject.config.resourceLimits, cpu: e.target.value } })}
-                                      placeholder="0.5"
-                                    />
-                                    <p className="text-[11px] text-zinc-400">e.g. 0.5 = half a core</p>
-                                  </div>
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs font-medium text-zinc-500">Replicas</Label>
-                                    <Input
-                                      type="number"
-                                      min={1}
-                                      value={selectedProject.config.replicas}
-                                      onChange={e => updateProjectConfig({ replicas: parseInt(e.target.value) || 1 })}
-                                    />
-                                    <p className="text-[11px] text-zinc-400">Number of Odoo instances</p>
-                                  </div>
-                                </div>
-                              </CardContent>
-                            </Card>
-
-                            {/* Section: Logging & Health */}
-                            <Card className="border-zinc-200 shadow-sm">
-                              <CardHeader className="pb-4">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
-                                    <FileCode className="w-4 h-4 text-amber-600" />
-                                  </div>
-                                  <div>
-                                    <CardTitle className="text-base">Logging & Health Check</CardTitle>
-                                    <CardDescription className="text-xs">Container log rotation and health monitoring</CardDescription>
-                                  </div>
-                                </div>
-                              </CardHeader>
-                              <CardContent>
-                                <div className="grid grid-cols-2 gap-4 mb-4">
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs font-medium text-zinc-500">Log Max Size</Label>
-                                    <Input
-                                      value={selectedProject.config.loggingConfig.maxSize}
-                                      onChange={e => updateProjectConfig({ loggingConfig: { ...selectedProject.config.loggingConfig, maxSize: e.target.value } })}
-                                      placeholder="10m"
-                                    />
-                                  </div>
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs font-medium text-zinc-500">Log Max Files</Label>
-                                    <Input
-                                      value={selectedProject.config.loggingConfig.maxFile}
-                                      onChange={e => updateProjectConfig({ loggingConfig: { ...selectedProject.config.loggingConfig, maxFile: e.target.value } })}
-                                      placeholder="3"
-                                    />
-                                  </div>
-                                </div>
-                                <Separator className="my-4" />
-                                <div className="grid grid-cols-3 gap-4">
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs font-medium text-zinc-500">Health Check Interval</Label>
-                                    <Input
-                                      value={selectedProject.config.healthCheck.interval}
-                                      onChange={e => updateProjectConfig({ healthCheck: { ...selectedProject.config.healthCheck, interval: e.target.value } })}
-                                      placeholder="30s"
-                                    />
-                                  </div>
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs font-medium text-zinc-500">Health Check Timeout</Label>
-                                    <Input
-                                      value={selectedProject.config.healthCheck.timeout}
-                                      onChange={e => updateProjectConfig({ healthCheck: { ...selectedProject.config.healthCheck, timeout: e.target.value } })}
-                                      placeholder="10s"
-                                    />
-                                  </div>
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs font-medium text-zinc-500">Health Check Retries</Label>
-                                    <Input
-                                      type="number"
-                                      min={1}
-                                      value={selectedProject.config.healthCheck.retries}
-                                      onChange={e => updateProjectConfig({ healthCheck: { ...selectedProject.config.healthCheck, retries: parseInt(e.target.value) || 3 } })}
                                     />
                                   </div>
                                 </div>
@@ -1028,47 +828,276 @@ export default function App() {
 
                         {/* ── Docker Compose Tab ── */}
                         <TabsContent value="compose">
-                          <Card className="border-zinc-200 shadow-sm overflow-hidden">
-                            <CardHeader className="bg-zinc-900 text-white py-3 px-6 flex flex-row items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <FileCode className="w-4 h-4 text-zinc-400" />
-                                <span className="text-xs font-mono">docker-compose.yml</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                {selectedProject.config.customCompose !== undefined && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 text-[10px] text-zinc-400 hover:text-white hover:bg-zinc-800 gap-1"
-                                    onClick={() => {
-                                      updateProjectConfig({ customCompose: undefined });
-                                      toast.info('Reset to auto-generated compose file.');
-                                    }}
-                                  >
-                                    <RefreshCw className="w-3 h-3" />
-                                    Reset to Generated
-                                  </Button>
-                                )}
-                                <Badge variant="secondary" className="bg-zinc-800 text-zinc-300 border-zinc-700">
-                                  {selectedProject.config.customCompose !== undefined ? 'CUSTOM' : 'AUTO'}
-                                </Badge>
-                              </div>
-                            </CardHeader>
-                            <CardContent className="p-0">
-                              <Textarea
-                                className="font-mono text-sm bg-zinc-950 text-zinc-300 border-none rounded-none min-h-[500px] focus-visible:ring-0 focus-visible:ring-offset-0 p-6 leading-relaxed resize-none"
-                                value={selectedProject.config.customCompose ?? generateDockerCompose(selectedProject.name, selectedProject.config)}
-                                onChange={e => updateProjectConfig({ customCompose: e.target.value })}
-                              />
-                            </CardContent>
-                            <CardFooter className="bg-zinc-900 border-t border-zinc-800 py-2.5 px-6">
-                              <p className="text-[11px] text-zinc-500">
-                                {selectedProject.config.customCompose !== undefined
-                                  ? 'You are editing a custom compose file. Settings changes won\'t affect this until you reset.'
-                                  : 'This file is auto-generated from your Settings. Edit it to switch to a custom compose file.'}
-                              </p>
-                            </CardFooter>
-                          </Card>
+                          <div className="flex justify-end mb-4">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-2"
+                              onClick={() => setShowAdvancedCompose(!showAdvancedCompose)}
+                            >
+                              {showAdvancedCompose ? <Settings2 className="w-4 h-4" /> : <FileCode className="w-4 h-4" />}
+                              {showAdvancedCompose ? "Back to UI Config" : "Advanced (Raw YAML)"}
+                            </Button>
+                          </div>
+
+                          {!showAdvancedCompose ? (
+                            <div className="space-y-6">
+                              {/* Section: Core Configuration */}
+                              <Card className="border-zinc-200 shadow-sm">
+                                <CardHeader className="pb-4">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                                      <Settings2 className="w-4 h-4 text-blue-600" />
+                                    </div>
+                                    <div>
+                                      <CardTitle className="text-base">Core Config</CardTitle>
+                                      <CardDescription className="text-xs">Port mapping and Odoo image version</CardDescription>
+                                    </div>
+                                  </div>
+                                </CardHeader>
+                                <CardContent>
+                                  <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs font-medium text-zinc-500">Host Port</Label>
+                                      <Input
+                                        type="number"
+                                        value={selectedProject.config.hostPort || ''}
+                                        onChange={e => updateProjectConfig({ hostPort: parseInt(e.target.value) || 8069 })}
+                                      />
+                                      <p className="text-[11px] text-zinc-400">Port mapped to container's <code>8069</code></p>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs font-medium text-zinc-500">Odoo Version</Label>
+                                      <Select
+                                        value={selectedProject.config.odooVersion}
+                                        onValueChange={v => updateProjectConfig({ odooVersion: v })}
+                                      >
+                                        <SelectTrigger>
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {ODOO_VERSIONS.map(v => (
+                                            <SelectItem key={v} value={v}>
+                                              Odoo {v}{v === '19.0' ? ' (latest)' : ''}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                      <p className="text-[11px] text-zinc-400">Official Docker image from <code>hub.docker.com/_/odoo</code></p>
+                                    </div>
+                                  </div>
+                                </CardContent>
+                              </Card>
+
+                              {/* Section: Database */}
+                              <Card className="border-zinc-200 shadow-sm">
+                                <CardHeader className="pb-4">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+                                      <Database className="w-4 h-4 text-emerald-600" />
+                                    </div>
+                                    <div>
+                                      <CardTitle className="text-base">Database</CardTitle>
+                                      <CardDescription className="text-xs">PostgreSQL 15 connection settings</CardDescription>
+                                    </div>
+                                  </div>
+                                </CardHeader>
+                                <CardContent>
+                                  <div className="grid grid-cols-3 gap-4">
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs font-medium text-zinc-500">Database Name</Label>
+                                      <Input
+                                        value={selectedProject.config.dbName}
+                                        onChange={e => updateProjectConfig({ dbName: e.target.value })}
+                                      />
+                                      <p className="text-[11px] text-zinc-400">Maps to <code>POSTGRES_DB</code></p>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs font-medium text-zinc-500">Database User</Label>
+                                      <Input
+                                        value={selectedProject.config.dbUser}
+                                        onChange={e => updateProjectConfig({ dbUser: e.target.value })}
+                                      />
+                                      <p className="text-[11px] text-zinc-400">Maps to <code>POSTGRES_USER</code></p>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs font-medium text-zinc-500">Database Password</Label>
+                                      <Input
+                                        type="password"
+                                        value={selectedProject.config.dbPassword}
+                                        onChange={e => updateProjectConfig({ dbPassword: e.target.value })}
+                                      />
+                                    </div>
+                                  </div>
+                                </CardContent>
+                              </Card>
+
+                              {/* Section: Addons */}
+                              <Card className="border-zinc-200 shadow-sm">
+                                <CardHeader className="pb-4">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
+                                      <Package className="w-4 h-4 text-indigo-600" />
+                                    </div>
+                                    <div className="flex-1">
+                                      <CardTitle className="text-base">Addons Volumes</CardTitle>
+                                      <CardDescription className="text-xs">Map local folders or Enterprise modules</CardDescription>
+                                    </div>
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline" 
+                                      onClick={() => updateProjectConfig({ addonsPaths: [...(selectedProject.config.addonsPaths || []), ''] })}
+                                    >
+                                      <Plus className="w-3 h-3 mr-1" /> Add Path
+                                    </Button>
+                                  </div>
+                                </CardHeader>
+                                <CardContent>
+                                  <div className="space-y-3">
+                                    {(selectedProject.config.addonsPaths || []).map((path, index) => (
+                                      <div key={index} className="flex gap-2 items-start">
+                                        <div className="flex-1 space-y-1">
+                                          <Input 
+                                            value={path} 
+                                            placeholder="./addons"
+                                            onChange={e => {
+                                              const newArr = [...(selectedProject.config.addonsPaths || [])];
+                                              newArr[index] = e.target.value;
+                                              updateProjectConfig({ addonsPaths: newArr });
+                                            }} 
+                                          />
+                                          <p className="text-[10px] text-zinc-400">Mounted at <code>/mnt/extra-addons-{index}</code></p>
+                                        </div>
+                                        <Button 
+                                          variant="ghost" 
+                                          size="icon" 
+                                          className="text-red-500 hover:bg-red-50 hover:text-red-600 h-9 w-9 mt-0.5"
+                                          onClick={() => {
+                                            const newArr = [...(selectedProject.config.addonsPaths || [])];
+                                            newArr.splice(index, 1);
+                                            updateProjectConfig({ addonsPaths: newArr });
+                                          }}
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                      </div>
+                                    ))}
+                                    {(!selectedProject.config.addonsPaths || selectedProject.config.addonsPaths.length === 0) && (
+                                      <div className="text-center py-4 bg-zinc-50 border border-dashed border-zinc-200 rounded-md text-zinc-400 text-xs">
+                                        No addons paths configured.
+                                      </div>
+                                    )}
+                                  </div>
+                                </CardContent>
+                              </Card>
+
+
+                              {/* Section: Logging & Health */}
+                              <Card className="border-zinc-200 shadow-sm">
+                                <CardHeader className="pb-4">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
+                                      <FileCode className="w-4 h-4 text-amber-600" />
+                                    </div>
+                                    <div>
+                                      <CardTitle className="text-base">Logging & Health Check</CardTitle>
+                                      <CardDescription className="text-xs">Container log rotation and health monitoring</CardDescription>
+                                    </div>
+                                  </div>
+                                </CardHeader>
+                                <CardContent>
+                                  <div className="grid grid-cols-2 gap-4 mb-4">
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs font-medium text-zinc-500">Log Max Size</Label>
+                                      <Input
+                                        value={selectedProject.config.loggingConfig.maxSize}
+                                        onChange={e => updateProjectConfig({ loggingConfig: { ...selectedProject.config.loggingConfig, maxSize: e.target.value } })}
+                                        placeholder="10m"
+                                      />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs font-medium text-zinc-500">Log Max Files</Label>
+                                      <Input
+                                        value={selectedProject.config.loggingConfig.maxFile}
+                                        onChange={e => updateProjectConfig({ loggingConfig: { ...selectedProject.config.loggingConfig, maxFile: e.target.value } })}
+                                        placeholder="3"
+                                      />
+                                    </div>
+                                  </div>
+                                  <Separator className="my-4" />
+                                  <div className="grid grid-cols-3 gap-4">
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs font-medium text-zinc-500">Health Check Interval</Label>
+                                      <Input
+                                        value={selectedProject.config.healthCheck.interval}
+                                        onChange={e => updateProjectConfig({ healthCheck: { ...selectedProject.config.healthCheck, interval: e.target.value } })}
+                                        placeholder="30s"
+                                      />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs font-medium text-zinc-500">Health Check Timeout</Label>
+                                      <Input
+                                        value={selectedProject.config.healthCheck.timeout}
+                                        onChange={e => updateProjectConfig({ healthCheck: { ...selectedProject.config.healthCheck, timeout: e.target.value } })}
+                                        placeholder="10s"
+                                      />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs font-medium text-zinc-500">Health Check Retries</Label>
+                                      <Input
+                                        type="number"
+                                        min={1}
+                                        value={selectedProject.config.healthCheck.retries}
+                                        onChange={e => updateProjectConfig({ healthCheck: { ...selectedProject.config.healthCheck, retries: parseInt(e.target.value) || 3 } })}
+                                      />
+                                    </div>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            </div>
+                          ) : (
+                            <Card className="border-zinc-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-2">
+                              <CardHeader className="bg-zinc-900 text-white py-3 px-6 flex flex-row items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <FileCode className="w-4 h-4 text-zinc-400" />
+                                  <span className="text-xs font-mono">docker-compose.yml</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {selectedProject.config.customCompose !== undefined && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 text-[10px] text-zinc-400 hover:text-white hover:bg-zinc-800 gap-1"
+                                      onClick={() => {
+                                        updateProjectConfig({ customCompose: undefined });
+                                        toast.info('Reset to auto-generated compose file.');
+                                      }}
+                                    >
+                                      <RefreshCw className="w-3 h-3" />
+                                      Reset to Generated
+                                    </Button>
+                                  )}
+                                  <Badge variant="secondary" className="bg-zinc-800 text-zinc-300 border-zinc-700">
+                                    {selectedProject.config.customCompose !== undefined ? 'CUSTOM' : 'AUTO'}
+                                  </Badge>
+                                </div>
+                              </CardHeader>
+                              <CardContent className="p-0">
+                                <Textarea
+                                  className="font-mono text-sm bg-zinc-950 text-zinc-300 border-none rounded-none min-h-[500px] focus-visible:ring-0 focus-visible:ring-offset-0 p-6 leading-relaxed resize-none"
+                                  value={selectedProject.config.customCompose ?? generateDockerCompose(selectedProject.name, selectedProject.config)}
+                                  onChange={e => updateProjectConfig({ customCompose: e.target.value })}
+                                />
+                              </CardContent>
+                              <CardFooter className="bg-zinc-900 border-t border-zinc-800 py-2.5 px-6">
+                                <p className="text-[11px] text-zinc-500">
+                                  {selectedProject.config.customCompose !== undefined
+                                    ? 'You are editing a custom compose file. Visual settings changes won\'t affect this until you reset.'
+                                    : 'This file is auto-generated from your Settings. Edit it to switch to a custom compose file.'}
+                                </p>
+                              </CardFooter>
+                            </Card>
+                          )}
                         </TabsContent>
 
                         {/* ── Logs Tab ── */}

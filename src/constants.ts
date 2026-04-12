@@ -13,17 +13,13 @@ db_password = odoo
 
 export const DEFAULT_PROJECT_CONFIG = {
   odooVersion: '19.0' as OdooVersion,
+  hostPort: 8069,
   dbName: 'postgres',
   dbPassword: 'odoo',
   dbUser: 'odoo',
   odooConf: DEFAULT_ODOO_CONF,
-  addonsPath: './addons',
+  addonsPaths: ['./addons'],
   includePostgres: true,
-  enterpriseAddonsPath: '',
-  resourceLimits: {
-    memory: '1g',
-    cpu: '0.5',
-  },
   loggingConfig: {
     driver: 'json-file',
     maxSize: '10m',
@@ -34,5 +30,4 @@ export const DEFAULT_PROJECT_CONFIG = {
     timeout: '10s',
     retries: 3,
   },
-  replicas: 1,
 };
