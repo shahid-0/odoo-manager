@@ -20,7 +20,8 @@ export interface BackupMeta {
  */
 export async function backupOdooDatabase(
   project: Project, 
-  options: { neutralize: boolean; withFilestore: boolean }
+  options: { neutralize: boolean; withFilestore: boolean },
+  onLog?: (msg: string) => void
 ): Promise<BackupMeta> {
   if (!project.port) throw new Error("Project port not found. Is the container running?");
   
@@ -30,6 +31,7 @@ export async function backupOdooDatabase(
 
   const backupDir = path.join(__dirname, '../data/backups', project.id);
   if (!existsSync(backupDir)) {
+    onLog?.(`Creating backup directory: ${backupDir}`);
     mkdirSync(backupDir, { recursive: true });
   }
 
@@ -47,6 +49,7 @@ export async function backupOdooDatabase(
     params.append('backup_mode', 'neutralize');
   }
 
+  onLog?.(`Requesting backup from Odoo API: ${odooUrl}...`);
   const response = await fetch(odooUrl, {
     method: 'POST',
     body: params,
@@ -59,8 +62,11 @@ export async function backupOdooDatabase(
   }
 
   const blob = await response.blob();
+
+  onLog?.(`Receiving backup file (${(blob.size / 1024 / 1024).toFixed(2)} MB)...`);
   const buffer = Buffer.from(await blob.arrayBuffer());
   await fs.writeFile(filepath, buffer);
+  onLog?.(`Backup saved to host: ${filename}`);
 
   return {
     filename,
@@ -73,8 +79,9 @@ export async function backupOdooDatabase(
 /**
  * Drops an Odoo database using Odoo's internal API.
  */
-export async function dropOdooDatabase(project: Project): Promise<void> {
+export async function dropOdooDatabase(project: Project, onLog?: (msg: string) => void): Promise<void> {
   if (!project.port) throw new Error("Project port not found.");
+  onLog?.(`Dropping database ${project.config.dbName} via Odoo API...`);
   const odooUrl = `http://localhost:${project.port}/web/database/drop`;
   const masterPwd = project.config.masterPassword || 'admin';
 
@@ -85,62 +92,131 @@ export async function dropOdooDatabase(project: Project): Promise<void> {
   const response = await fetch(odooUrl, {
     method: 'POST',
     body: params,
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    redirect: 'manual'
   });
 
-  if (!response.ok) {
+  if (response.status !== 303) {
     const errorText = await response.text();
-    // Ignore if database doesn't exist already
-    if (!errorText.includes('does not exist')) {
-      throw new Error(`Odoo drop failed (${response.status}): ${errorText.slice(0, 100)}`);
+    // Ignore if database doesn't exist already (common case)
+    if (errorText.includes('does not exist') || errorText.includes('Database not found')) {
+      onLog?.(`Database ${project.config.dbName} already clean (not found).`);
+      return;
     }
+    
+    const errorMatch = errorText.match(/<div class="alert alert-danger"[^>]*>([\s\S]*?)<\/div>/i);
+    const cleanError = errorMatch ? errorMatch[1].replace(/<[^>]+>/g, '').trim() : "Odoo rejected the drop request";
+    
+    onLog?.(`❌ Odoo drop failed: ${cleanError}`);
+    throw new Error(`Odoo drop failed: ${cleanError}`);
   }
+  onLog?.(`✅ Database ${project.config.dbName} successfully dropped.`);
 }
 
 /**
- * Restores an Odoo database using Odoo's internal restore API.
+ * Restores an Odoo database using either Odoo's API or direct Postgres restore.
  */
 export async function restoreOdooDatabase(
+  docker: Docker,
   project: Project, 
   backupFilepath: string,
-  neutralize: boolean = false
+  onLog?: (msg: string) => void,
+  neutralize: boolean = false,
 ): Promise<void> {
   if (!project.port) throw new Error("Project port not found. Is the container running?");
   if (!existsSync(backupFilepath)) throw new Error("Backup file does not exist.");
 
+  const extension = path.extname(backupFilepath).toLowerCase();
+  const filename = path.basename(backupFilepath);
+
+  console.log(`[RESTORE] Starting restore for ${filename}...`);
+
   // 1. First drop the existing database to avoid "already exists" error
-  await dropOdooDatabase(project).catch(err => {
-    console.warn("Drop database failed (might not exist):", err.message);
+  await dropOdooDatabase(project, onLog).catch(err => {
+    onLog?.(`⚠️ Drop database warning (it might not exist): ${err.message}`);
   });
 
-  // 2. Perform the restore
-  const odooUrl = `http://localhost:${project.port}/web/database/restore`;
-  const masterPwd = project.config.masterPassword || 'admin';
-  
-  const fileBuffer = await fs.readFile(backupFilepath);
-  const formData = new FormData();
-  
-  formData.append('master_pwd', masterPwd);
-  formData.append('name', project.config.dbName);
-  // Important: Node's fetch with FormData needs a filename for the blob to be treated as a file upload
-  const blob = new Blob([fileBuffer]);
-  formData.append('backup_file', blob, path.basename(backupFilepath));
-  formData.append('copy', 'false');
-  if (neutralize) {
-    formData.append('neutralize', 'true');
-  }
+  if (extension === '.sql') {
+    // Mode: Direct PSQL restore for raw SQL dumps
+    onLog?.(`Detected .sql file. Using direct psql restore into container ${project.dbContainerId}...`);
+    const dbContainer = docker.getContainer(project.dbContainerId!);
+    
+    // Ensure the database is recreated empty first
+    onLog?.(`Recreating empty database ${project.config.dbName}...`);
+    const createExec = await dbContainer.exec({
+      Cmd: ['createdb', '-U', project.config.dbUser, project.config.dbName],
+      Env: [`PGPASSWORD=${project.config.dbPassword}`]
+    });
+    await createExec.start({});
 
-  // Use redirect: 'manual' because Odoo returns a redirect on success which we don't need to follow
-  const response = await fetch(odooUrl, {
-    method: 'POST',
-    body: formData,
-    redirect: 'manual'
-  });
+    onLog?.(`Piping SQL content to psql...`);
+    const fileContent = await fs.readFile(backupFilepath, 'utf8');
 
-  // 303 Redirect is the success indicator for Odoo restores
-  if (!response.ok && response.status !== 303) {
-    const errorText = await response.text();
-    throw new Error(`Odoo restore failed (${response.status}): ${errorText.slice(0, 300)}`);
+    const exec = await dbContainer.exec({
+      Cmd: ['psql', '-U', project.config.dbUser, '-d', project.config.dbName, '--no-password'],
+      Env: [`PGPASSWORD=${project.config.dbPassword}`],
+      AttachStdin: true,
+      AttachStdout: true,
+      AttachStderr: true
+    });
+
+    const stream = await exec.start({ hijack: true, stdin: true });
+    
+    return new Promise((resolve, reject) => {
+      docker.modem.demuxStream(stream, process.stdout, process.stderr);
+      stream.on('end', async () => {
+        const inspectStatus = await exec.inspect();
+        if (inspectStatus.ExitCode === 0) {
+          console.log(`[RESTORE] SQL restore complete.`);
+          resolve();
+        } else {
+          console.error(`[RESTORE] psql failed with code ${inspectStatus.ExitCode}`);
+          reject(new Error(`psql exit code ${inspectStatus.ExitCode}`));
+        }
+      });
+      stream.write(fileContent);
+      stream.end();
+    });
+
+  } else if (extension === '.zip') {
+    // Mode: Odoo Native API for .zip (includes filestore)
+    onLog?.(`Detected .zip archive. Using Odoo native restore API at port ${project.port}...`);
+    const odooUrl = `http://localhost:${project.port}/web/database/restore`;
+    const masterPwd = project.config.masterPassword || 'admin';
+    
+    const fileBuffer = await fs.readFile(backupFilepath);
+    const formData = new FormData();
+    
+    formData.append('master_pwd', masterPwd);
+    formData.append('name', project.config.dbName);
+    const blob = new Blob([fileBuffer]);
+    formData.append('backup_file', blob, filename);
+    formData.append('copy', 'false');
+    if (neutralize) {
+      formData.append('neutralize', 'true');
+    }
+
+    const response = await fetch(odooUrl, {
+      method: 'POST',
+      body: formData,
+      redirect: 'manual'
+    });
+
+    // For Odoo /restore and /drop, a 303 Redirect is the success signal.
+    // If it returns a 200 OK, it usually means it stayed on the page to show an error form.
+    if (response.status === 303) {
+      onLog?.(`✅ Native archive restore complete.`);
+    } else {
+      const errorText = await response.text();
+      // Try to find a common Odoo error message in the HTML
+      const errorMatch = errorText.match(/<div class="alert alert-danger"[^>]*>([\s\S]*?)<\/div>/i);
+      const cleanError = errorMatch ? errorMatch[1].replace(/<[^>]+>/g, '').trim() : "Odoo rejected the request (likely wrong Master Password or invalid file)";
+      
+      onLog?.(`❌ Odoo API failed (${response.status}): ${cleanError}`);
+      throw new Error(`Odoo restore failed: ${cleanError}`);
+    }
+  } else {
+    throw new Error(`Unsupported backup format: ${extension}`);
   }
 }
 
