@@ -502,13 +502,50 @@ export default function App() {
         {selectedOrg ? (
           <>
             {/* Header */}
-            <header className="h-16 border-b border-zinc-200 bg-white px-8 flex items-center justify-between">
+            <header className="h-16 border-b border-zinc-200 bg-white px-8 flex items-center justify-between sticky top-0 z-10">
               <div className="flex items-center gap-4">
-                <h2 className="text-lg font-semibold">{selectedOrg.name}</h2>
+                <div 
+                  className="flex items-center gap-2 cursor-pointer hover:text-zinc-600 transition-colors"
+                  onClick={() => setSelectedProjectId(null)}
+                >
+                  <Building2 className="w-5 h-5" />
+                  <h2 className="text-lg font-semibold">{selectedOrg.name}</h2>
+                </div>
+                
                 <Separator orientation="vertical" className="h-4" />
-                <nav className="flex items-center gap-1 text-sm text-zinc-500">
-                  <LayoutDashboard className="w-4 h-4 mr-1" />
-                  <span>Projects</span>
+                
+                <nav className="flex items-center gap-3">
+                  <div 
+                    className={`flex items-center gap-1.5 text-sm font-medium cursor-pointer py-1 px-3 rounded-md transition-colors ${!selectedProjectId ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-500 hover:bg-zinc-50'}`}
+                    onClick={() => setSelectedProjectId(null)}
+                  >
+                    <LayoutDashboard className="w-4 h-4" />
+                    <span>Dashboard</span>
+                  </div>
+
+                  {selectedProjectId && (
+                    <>
+                      <Separator orientation="vertical" className="h-4" />
+                      <Select 
+                        value={selectedProjectId} 
+                        onValueChange={setSelectedProjectId}
+                      >
+                        <SelectTrigger className="h-8 border-none bg-transparent hover:bg-zinc-50 font-medium text-sm gap-2 px-3">
+                          <div className="flex items-center gap-2">
+                            <Folder className="w-4 h-4 text-zinc-500" />
+                            <SelectValue placeholder="Select Project" />
+                          </div>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {selectedOrg.projects.map(p => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </>
+                  )}
                 </nav>
               </div>
               <Dialog open={isNewProjectDialogOpen} onOpenChange={setIsNewProjectDialogOpen}>
@@ -618,57 +655,96 @@ export default function App() {
             </header>
 
             {/* Content Area */}
-            <div className="flex-1 flex overflow-hidden">
-              {/* Project List */}
-              <div className="w-80 border-r border-zinc-200 bg-white overflow-y-auto">
-                <div className="p-4 space-y-2">
+            <div className="flex-1 overflow-y-auto bg-zinc-50">
+              {!selectedProjectId ? (
+                /* Organization Dashboard - Project Grid */
+                <div className="p-8 max-w-7xl mx-auto">
+                  <div className="flex items-center justify-between mb-8">
+                    <div>
+                      <h1 className="text-2xl font-bold tracking-tight">Project Dashboard</h1>
+                      <p className="text-zinc-500">Manage all your Odoo instances for {selectedOrg.name}.</p>
+                    </div>
+                    <Button onClick={() => setIsNewProjectDialogOpen(true)} className="gap-2 shadow-sm rounded-lg">
+                      <Plus className="w-4 h-4" />
+                      New Project
+                    </Button>
+                  </div>
+
                   {selectedOrg.projects.length === 0 ? (
-                    <div className="text-center py-12 px-4">
-                      <Folder className="w-12 h-12 text-zinc-200 mx-auto mb-4" />
-                      <p className="text-sm text-zinc-500">No projects yet. Create one to get started.</p>
+                    <div className="flex flex-col items-center justify-center py-20 bg-white rounded-2xl border border-dashed border-zinc-300">
+                      <div className="w-16 h-16 bg-zinc-50 rounded-full flex items-center justify-center mb-6">
+                        <Package className="w-8 h-8 text-zinc-300" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-zinc-900 mb-2">No projects found</h3>
+                      <p className="text-zinc-500 mb-8 max-w-xs text-center">Get started by creating your first Odoo deployment in this organization.</p>
+                      <Button onClick={() => setIsNewProjectDialogOpen(true)} variant="outline" className="gap-2">
+                        <Plus className="w-4 h-4" />
+                        Create Project
+                      </Button>
                     </div>
                   ) : (
-                    selectedOrg.projects.map(project => (
-                      <button
-                        key={project.id}
-                        onClick={() => setSelectedProjectId(project.id)}
-                        className={`w-full text-left p-4 rounded-xl border transition-all ${
-                          selectedProjectId === project.id 
-                            ? 'border-zinc-900 bg-zinc-900 text-white shadow-lg' 
-                            : 'border-zinc-200 hover:border-zinc-300 bg-white text-zinc-900'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`w-2 h-2 rounded-full shrink-0 ${
-                              project.status === 'running' ? 'bg-emerald-400' :
-                              project.status === 'deploying' ? 'bg-amber-400 animate-pulse' :
-                              project.status === 'error' ? 'bg-red-400' :
-                              project.status === 'stopped' ? 'bg-zinc-400' :
-                              'bg-blue-400'
-                            }`} />
-                            <Badge variant={selectedProjectId === project.id ? 'secondary' : 'outline'} className="text-[10px]">
-                              v{project.config.odooVersion}
-                            </Badge>
-                          </div>
-                          <span className="text-[10px] opacity-60">
-                            {new Date(project.createdAt).toLocaleDateString()}
-                          </span>
-                        </div>
-                        <h3 className="font-semibold text-sm mb-1 truncate">{project.name}</h3>
-                        <p className={`text-xs truncate ${selectedProjectId === project.id ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                          {project.description || 'No description'}
-                        </p>
-                      </button>
-                    ))
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {selectedOrg.projects.map(project => (
+                        <motion.div
+                          key={project.id}
+                          layoutId={project.id}
+                          whileHover={{ y: -4 }}
+                          transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                        >
+                          <Card 
+                            className="group cursor-pointer border-zinc-200 hover:border-zinc-900 transition-all hover:shadow-xl bg-white overflow-hidden h-full flex flex-col"
+                            onClick={() => setSelectedProjectId(project.id)}
+                          >
+                            <CardHeader className="pb-3 px-6 pt-6">
+                              <div className="flex items-center justify-between mb-3">
+                                <Badge variant="secondary" className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                  project.status === 'running' ? 'bg-emerald-100 text-emerald-700' :
+                                  project.status === 'deploying' ? 'bg-amber-100 text-amber-700 animate-pulse' :
+                                  project.status === 'error' ? 'bg-red-100 text-red-700' :
+                                  'bg-zinc-100 text-zinc-600'
+                                }`}>
+                                  {project.status?.toUpperCase() || 'IDLE'}
+                                </Badge>
+                                <span className="text-[10px] text-zinc-400 font-medium">v{project.config.odooVersion}</span>
+                              </div>
+                              <CardTitle className="text-lg group-hover:text-zinc-900 truncate">{project.name}</CardTitle>
+                              <CardDescription className="line-clamp-2 text-xs min-h-[32px]">{project.description || 'No description provided.'}</CardDescription>
+                            </CardHeader>
+                            <CardContent className="px-6 py-3 flex-1">
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between text-xs text-zinc-500">
+                                  <div className="flex items-center gap-1.5">
+                                    <Activity className="w-3.5 h-3.5 opacity-50" />
+                                    <span>Host Port</span>
+                                  </div>
+                                  <span className="font-mono bg-zinc-50 px-1.5 py-0.5 rounded border border-zinc-100">{project.port || project.config.hostPort}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs text-zinc-500">
+                                  <div className="flex items-center gap-1.5">
+                                    <Database className="w-3.5 h-3.5 opacity-50" />
+                                    <span>Database</span>
+                                  </div>
+                                  <span className="truncate max-w-[120px] font-medium">{project.config.dbName}</span>
+                                </div>
+                              </div>
+                            </CardContent>
+                            <CardFooter className="px-6 pb-6 pt-0 mt-auto">
+                              <Button variant="ghost" className="w-full text-zinc-500 group-hover:text-zinc-900 group-hover:bg-zinc-50 gap-2 h-9 text-xs font-semibold">
+                                View Details
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </Button>
+                            </CardFooter>
+                          </Card>
+                        </motion.div>
+                      ))}
+                    </div>
                   )}
                 </div>
-              </div>
-
-              {/* Project Detail */}
-              <div className="flex-1 bg-zinc-50 overflow-y-auto p-8">
+              ) : (
+                /* Project Detail View */
+                <div className="p-8">
                 <AnimatePresence mode="wait">
-                  {selectedProject ? (
+                  {selectedProject && (
                     <motion.div
                       key={selectedProject.id}
                       initial={{ opacity: 0, y: 10 }}
@@ -1215,19 +1291,12 @@ export default function App() {
                         </TabsContent>
                       </Tabs>
                     </motion.div>
-                  ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-center">
-                      <div className="w-16 h-16 bg-zinc-100 rounded-full flex items-center justify-center mb-6">
-                        <LayoutDashboard className="w-8 h-8 text-zinc-300" />
-                      </div>
-                      <h3 className="text-xl font-semibold mb-2">Select a project</h3>
-                      <p className="text-zinc-500 max-w-xs">Choose a project from the sidebar to view its configuration and generate Docker Compose files.</p>
-                    </div>
                   )}
                 </AnimatePresence>
               </div>
-            </div>
-          </>
+            )}
+          </div>
+        </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center bg-zinc-50">
             <div className="max-w-md w-full p-8 text-center">
