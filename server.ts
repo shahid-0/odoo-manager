@@ -6,6 +6,7 @@ import Docker from "dockerode";
 import fs from "fs/promises";
 import { Organization, Project } from "./src/types";
 import { streamContainerStats } from "./src/stats";
+import { backupOdooDatabase, restoreOdooDatabase, listBackups, deleteBackup } from "./src/backup";
 
 const docker = new Docker();
 const __filename = fileURLToPath(import.meta.url);
@@ -591,6 +592,109 @@ async function startServer() {
     req.on('close', () => {
       stopStreaming();
     });
+  });
+
+  app.get("/api/projects/:id", (req, res) => {
+    const { id } = req.params;
+    for (const org of organizations) {
+      const p = org.projects.find(proj => proj.id === id);
+      if (p) return res.json(p);
+    }
+    res.status(404).json({ error: "Project not found" });
+  });
+
+  app.patch("/api/organizations/:orgId/projects/:projectId", async (req, res) => {
+    const { orgId, projectId } = req.params;
+    const updates = req.body;
+
+    organizations = organizations.map(org => {
+      if (org.id === orgId) {
+        return {
+          ...org,
+          projects: org.projects.map(p => p.id === projectId ? { ...p, ...updates } : p)
+        };
+      }
+      return org;
+    });
+
+    await saveMetadata(organizations);
+    res.json({ success: true });
+  });
+
+  app.post("/api/projects/:projectId/backup", async (req, res) => {
+    const { projectId } = req.params;
+    const { neutralize, withFilestore } = req.body;
+    try {
+      let project: Project | undefined;
+      for (const org of organizations) {
+        project = org.projects.find(p => p.id === projectId);
+        if (project) break;
+      }
+      if (!project) return res.status(404).json({ error: "Project not found" });
+
+      const meta = await backupOdooDatabase(project, { 
+        neutralize: !!neutralize, 
+        withFilestore: !!withFilestore 
+      });
+      res.json(meta);
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.get("/api/projects/:projectId/backups", async (req, res) => {
+    const { projectId } = req.params;
+    try {
+      const backups = await listBackups(projectId);
+      res.json(backups);
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.post("/api/projects/:projectId/restore", async (req, res) => {
+    const { projectId } = req.params;
+    const { filepath } = req.body;
+    try {
+      let project: Project | undefined;
+      for (const org of organizations) {
+        project = org.projects.find(p => p.id === projectId);
+        if (project) break;
+      }
+      if (!project) return res.status(404).json({ error: "Project not found" });
+
+      await restoreOdooDatabase(project, filepath);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.delete("/api/projects/:projectId/backups/:filename", async (req, res) => {
+    const { projectId, filename } = req.params;
+    try {
+      const backups = await listBackups(projectId);
+      const backup = backups.find(b => b.filename === filename);
+      if (!backup) return res.status(404).json({ error: "Backup not found" });
+
+      await deleteBackup(backup.filepath);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.get("/api/projects/:projectId/backups/:filename/download", async (req, res) => {
+    const { projectId, filename } = req.params;
+    try {
+      const backups = await listBackups(projectId);
+      const backup = backups.find(b => b.filename === filename);
+      if (!backup) return res.status(404).json({ error: "Backup not found" });
+
+      res.download(backup.filepath, filename);
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
   });
 
   // Vite middleware for development

@@ -39,6 +39,7 @@ export interface ProjectConfig {
     timeout: string;
     retries: number;
   };
+  masterPassword?: string;
   customCompose?: string;
 }
 

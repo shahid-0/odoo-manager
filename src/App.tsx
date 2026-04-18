@@ -19,6 +19,7 @@ import { Organization, Project, ProjectConfig, ProjectStatus, OdooVersion } from
 import { ODOO_VERSIONS, DEFAULT_PROJECT_CONFIG } from './constants';
 import { generateDockerCompose } from './lib/docker-utils';
 import { ContainerStats } from './components/ContainerStats';
+import { BackupManager } from './components/BackupManager';
 
 export default function App() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -63,7 +64,7 @@ export default function App() {
 
   // Helper to update project-level fields (name, description, etc.)
   const updateProject = async (updates: Partial<Project>) => {
-    if (!selectedOrgId || !selectedProjectId) return;
+    if (!selectedOrgId || !selectedProjectId || !selectedProject) return;
     
     // Update local state for immediate UI feedback
     setOrganizations(prev => prev.map(org =>
@@ -74,11 +75,12 @@ export default function App() {
 
     // Save to backend
     try {
-      await fetch(`/api/projects/${selectedProjectId}`, {
-        method: 'PUT',
+      const res = await fetch(`/api/organizations/${selectedOrgId}/projects/${selectedProjectId}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates)
       });
+      if (!res.ok) throw new Error("Failed to update project");
     } catch (e) {
       console.error("Failed to update project", e);
       toast.error("Failed to save changes to server");
@@ -428,6 +430,7 @@ export default function App() {
     navigator.clipboard.writeText(compose);
     toast.success('Docker Compose copied to clipboard');
   };
+
 
   return (
     <div className="flex h-screen bg-zinc-50 font-sans text-zinc-900">
@@ -931,39 +934,54 @@ export default function App() {
                           <div className="space-y-6">
                             
                             {/* Section: Project Details */}
-                            <Card className="border-zinc-200 shadow-sm">
-                              <CardHeader className="pb-4">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-                                    <Server className="w-4 h-4 text-blue-600" />
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <Card className="border-zinc-200 shadow-sm">
+                                <CardHeader className="pb-4">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                                      <Server className="w-4 h-4 text-blue-600" />
+                                    </div>
+                                    <div>
+                                      <CardTitle className="text-base">Project Details</CardTitle>
+                                      <CardDescription className="text-xs">Basic metadata</CardDescription>
+                                    </div>
                                   </div>
-                                  <div>
-                                    <CardTitle className="text-base">Project Details</CardTitle>
-                                    <CardDescription className="text-xs">Basic metadata</CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                  <div className="grid grid-cols-1 gap-4">
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs font-medium text-zinc-500">Project Name</Label>
+                                      <Input
+                                        value={selectedProject.name}
+                                        onChange={e => updateProject({ name: e.target.value })}
+                                      />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs font-medium text-zinc-500">Master Password</Label>
+                                      <Input
+                                        type="password"
+                                        placeholder="Odoo Master Password (default: admin)"
+                                        value={selectedProject.config.masterPassword || ''}
+                                        onChange={e => updateProject({ config: { ...selectedProject.config, masterPassword: e.target.value } })}
+                                      />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs font-medium text-zinc-500">Description</Label>
+                                      <Textarea
+                                        value={selectedProject.description}
+                                        onChange={e => updateProject({ description: e.target.value })}
+                                        placeholder="What is this project for?"
+                                        className="resize-none h-20"
+                                      />
+                                    </div>
                                   </div>
-                                </div>
-                              </CardHeader>
-                              <CardContent>
-                                <div className="grid grid-cols-1 gap-4">
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs font-medium text-zinc-500">Project Name</Label>
-                                    <Input
-                                      value={selectedProject.name}
-                                      onChange={e => updateProject({ name: e.target.value })}
-                                    />
-                                  </div>
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs font-medium text-zinc-500">Description</Label>
-                                    <Textarea
-                                      value={selectedProject.description}
-                                      onChange={e => updateProject({ description: e.target.value })}
-                                      placeholder="What is this project for?"
-                                      className="resize-none h-20"
-                                    />
-                                  </div>
-                                </div>
-                              </CardContent>
-                            </Card>
+                                </CardContent>
+                              </Card>
+
+                              {selectedProject.config.includePostgres && (
+                                <BackupManager projectId={selectedProject.id} />
+                              )}
+                            </div>
 
                             {/* Section: Odoo Config File */}
                             <Card className="border-zinc-200 shadow-sm">
