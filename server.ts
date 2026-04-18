@@ -34,6 +34,24 @@ async function saveMetadata(orgs: Organization[]) {
   await fs.writeFile(META_FILE, JSON.stringify(orgs, null, 2));
 }
 
+function appendProjectLog(orgs: Organization[], projectId: string, message: string): Organization[] {
+  const timestamp = new Date().toISOString();
+  const formattedMsg = `[${timestamp}] ${message}`;
+  
+  return orgs.map(org => ({
+    ...org,
+    projects: org.projects.map(p => {
+      if (p.id === projectId) {
+        return {
+          ...p,
+          projectLogs: [...(p.projectLogs || []), formattedMsg]
+        };
+      }
+      return p;
+    })
+  }));
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -94,6 +112,9 @@ async function startServer() {
   app.post("/api/projects/deploy", async (req, res) => {
     const { projectId, config, name, forcePull } = req.body;
     
+    organizations = appendProjectLog(organizations, projectId, `🚀 Deployment started (Force Pull: ${forcePull})`);
+    await saveMetadata(organizations);
+
     try {
       // Check if docker is installed and running
       await docker.ping();
@@ -450,7 +471,6 @@ async function startServer() {
         await dbContainer.stop();
         console.log(`Stopped DB container: ${dbContainerId.slice(0, 12)}`);
       }
-      // Update status in metadata
       organizations = organizations.map(org => ({
         ...org,
         projects: org.projects.map(p => {
@@ -460,6 +480,8 @@ async function startServer() {
           return p;
         })
       }));
+      
+      organizations = appendProjectLog(organizations, req.params.id, `🛑 Project containers stopped`);
       await saveMetadata(organizations);
 
       res.json({ status: "stopped" });
@@ -503,6 +525,8 @@ async function startServer() {
           return p;
         })
       }));
+
+      organizations = appendProjectLog(organizations, req.params.id, `▶️ Project containers started`);
       await saveMetadata(organizations);
 
       res.json({ status: "running", port });
@@ -636,6 +660,10 @@ async function startServer() {
         neutralize: !!neutralize, 
         withFilestore: !!withFilestore 
       });
+      
+      organizations = appendProjectLog(organizations, projectId, `💾 Backup created: ${meta.filename} (${withFilestore ? 'with filestore' : 'no filestore'}, ${neutralize ? 'neutralized' : 'exact'})`);
+      await saveMetadata(organizations);
+      
       res.json(meta);
     } catch (error) {
       res.status(500).json({ error: String(error) });
@@ -664,6 +692,10 @@ async function startServer() {
       if (!project) return res.status(404).json({ error: "Project not found" });
 
       await restoreOdooDatabase(project, filepath);
+      
+      organizations = appendProjectLog(organizations, projectId, `🔄 Database restored from: ${path.basename(filepath)}`);
+      await saveMetadata(organizations);
+      
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: String(error) });

@@ -130,7 +130,7 @@ export default function App() {
             ...org,
             projects: org.projects.map(p => 
               p.id === selectedProjectId 
-                ? { ...p, logs: data.logs } 
+                ? { ...p, containerLogs: data.logs } 
                 : p
             )
           })));
@@ -146,7 +146,7 @@ export default function App() {
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [selectedProject?.logs]);
+  }, [selectedProject?.containerLogs, selectedProject?.projectLogs]);
 
   const handleCreateOrg = async () => {
     if (!newOrgName.trim()) return;
@@ -182,7 +182,8 @@ export default function App() {
       ...newProject,
       createdAt: new Date().toISOString(),
       status: 'idle',
-      logs: ['[SYSTEM] Project created. Ready to deploy when you are.']
+      projectLogs: ['[SYSTEM] Project created. Ready to deploy when you are.'],
+      containerLogs: []
     };
     
     try {
@@ -219,7 +220,7 @@ export default function App() {
       projects: org.projects.map(p => p.id === project.id ? { 
         ...p, 
         status: 'deploying' as ProjectStatus, 
-        logs: [...(p.logs || []), `[SYSTEM] ${forcePull ? 'Force pulling latest image and rebuilding...' : 'Initializing deployment...'}`, `[SYSTEM] Using Odoo ${project.config.odooVersion} image...`, '[SYSTEM] Creating Docker network and containers...'] 
+        projectLogs: [...(p.projectLogs || []), `[SYSTEM] ${forcePull ? 'Force pulling latest image and rebuilding...' : 'Initializing deployment...'}`, `[SYSTEM] Using Odoo ${project.config.odooVersion} image...`, '[SYSTEM] Creating Docker network and containers...'] 
       } : p)
     })));
 
@@ -254,7 +255,7 @@ export default function App() {
               containerId: data.containerId,
               dbContainerId: data.dbContainerId,
               port: data.port,
-              logs: [...(p.logs || []), `[SYSTEM] ✅ Odoo ${project.config.odooVersion} running on port ${data.port}.`] 
+              projectLogs: [...(p.projectLogs || []), `[SYSTEM] ✅ Odoo ${project.config.odooVersion} running on port ${data.port}.`] 
             } : p)
           })));
           return 'Containers deployed and running!';
@@ -262,7 +263,7 @@ export default function App() {
         error: (err) => {
           setOrganizations(prev => prev.map(org => ({
             ...org,
-            projects: org.projects.map(p => p.id === project.id ? { ...p, status: 'error', logs: [...(p.logs || []), `[ERROR] ${err.message}`] } : p)
+            projects: org.projects.map(p => p.id === project.id ? { ...p, status: 'error', projectLogs: [...(p.projectLogs || []), `[ERROR] ${err.message}`] } : p)
           })));
           return err.message;
         }
@@ -275,7 +276,7 @@ export default function App() {
       ...org,
       projects: org.projects.map(p => p.id === project.id ? { 
         ...p, 
-        logs: [...(p.logs || []), '[TEST] Running configuration tests...'] 
+        projectLogs: [...(p.projectLogs || []), '[TEST] Running configuration tests...'] 
       } : p)
     })));
 
@@ -305,7 +306,7 @@ export default function App() {
             ...org,
             projects: org.projects.map(p => p.id === project.id ? { 
               ...p, 
-              logs: [...(p.logs || []), ...data.results.map((r: string) => `[TEST] ${r}`), '[TEST] ✅ All tests passed!'] 
+              projectLogs: [...(p.projectLogs || []), ...data.results.map((r: string) => `[TEST] ${r}`), '[TEST] ✅ All tests passed!'] 
             } : p)
           })));
           return 'All configuration tests passed!';
@@ -315,7 +316,7 @@ export default function App() {
             ...org,
             projects: org.projects.map(p => p.id === project.id ? { 
               ...p, 
-              logs: [...(p.logs || []), `[TEST] ❌ ${err.message}`] 
+              projectLogs: [...(p.projectLogs || []), `[TEST] ❌ ${err.message}`] 
             } : p)
           })));
           return err.message;
@@ -347,7 +348,7 @@ export default function App() {
             projects: org.projects.map(p => p.id === project.id ? { 
               ...p, 
               status: 'stopped', 
-              logs: [...(p.logs || []), '[SYSTEM] Odoo and database containers stopped.'] 
+              projectLogs: [...(p.projectLogs || []), '[SYSTEM] Odoo and database containers stopped.'] 
             } : p)
           })));
           return 'Containers stopped.';
@@ -381,7 +382,7 @@ export default function App() {
               ...p, 
               status: 'running', 
               port: data.port || p.port,
-              logs: [...(p.logs || []), '[SYSTEM] Odoo and database containers started.'] 
+              projectLogs: [...(p.projectLogs || []), '[SYSTEM] Odoo and database containers started.'] 
             } : p)
           })));
           return 'Containers started.';
@@ -1287,42 +1288,66 @@ export default function App() {
 
                         {/* ── Logs Tab ── */}
                         <TabsContent value="logs">
-                          <Card className="border-zinc-200 shadow-sm overflow-hidden bg-zinc-950">
-                            <CardHeader className="border-b border-zinc-800 py-3 px-6 flex flex-row items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <Terminal className="w-4 h-4 text-zinc-400" />
-                                <span className="text-xs font-mono text-zinc-400">Container Logs</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Badge variant="outline" className="text-[10px] border-zinc-800 text-zinc-500">
-                                  {(selectedProject.status || 'idle').toUpperCase()}
-                                </Badge>
-                                <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500 hover:text-white hover:bg-zinc-800">
-                                  <RefreshCw className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            </CardHeader>
-                            <CardContent className="p-0">
-                              <ScrollArea className="h-[400px] p-6">
-                                <div className="font-mono text-xs space-y-1">
-                                  {(selectedProject.logs || []).map((log, i) => (
-                                    <div key={i} className="flex gap-4">
-                                      <span className="text-zinc-600 shrink-0">[{i + 1}]</span>
-                                      <span className={
-                                        log.startsWith('[SYSTEM]') ? 'text-blue-400' : 
-                                        log.startsWith('[TEST]') ? 'text-violet-400' :
-                                        log.startsWith('[ERROR]') ? 'text-red-400' :
-                                        'text-zinc-300'
-                                      }>
-                                        {log}
-                                      </span>
-                                    </div>
-                                  ))}
-                                  <div ref={logEndRef} />
+                          <Tabs defaultValue="activity" className="w-full">
+                            <Card className="border-zinc-200 shadow-sm overflow-hidden bg-zinc-950">
+                              <CardHeader className="border-b border-zinc-800 py-2 px-6 flex flex-row items-center justify-between bg-zinc-900/50">
+                                <TabsList className="bg-zinc-800 border-zinc-700 h-8 p-0.5">
+                                  <TabsTrigger value="activity" className="text-[10px] h-7 px-3 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">PROJECT ACTIVITY</TabsTrigger>
+                                  <TabsTrigger value="terminal" className="text-[10px] h-7 px-3 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">TERMINAL OUTPUT</TabsTrigger>
+                                </TabsList>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline" className="text-[10px] border-zinc-800 text-zinc-500 font-mono">
+                                    {(selectedProject.status || 'idle').toUpperCase()}
+                                  </Badge>
                                 </div>
-                              </ScrollArea>
-                            </CardContent>
-                          </Card>
+                              </CardHeader>
+                              
+                              <CardContent className="p-0">
+                                <TabsContent value="activity" className="m-0">
+                                  <ScrollArea className="h-[400px] p-6">
+                                    <div className="font-mono text-xs space-y-2">
+                                      {(!selectedProject.projectLogs || selectedProject.projectLogs.length === 0) ? (
+                                        <div className="text-zinc-600 italic">No project activity recorded yet.</div>
+                                      ) : (
+                                        selectedProject.projectLogs.map((log, i) => (
+                                          <div key={i} className="flex gap-3 border-l-2 border-zinc-800 pl-4 py-1">
+                                            <span className="text-zinc-300 leading-relaxed tabular-nums">
+                                              {log}
+                                            </span>
+                                          </div>
+                                        ))
+                                      )}
+                                      <div ref={logEndRef} />
+                                    </div>
+                                  </ScrollArea>
+                                </TabsContent>
+                                
+                                <TabsContent value="terminal" className="m-0">
+                                  <ScrollArea className="h-[400px] p-6">
+                                    <div className="font-mono text-xs space-y-1">
+                                      {(!selectedProject.containerLogs || selectedProject.containerLogs.length === 0) ? (
+                                        <div className="text-zinc-600 italic">No container output available. Start the project to see logs.</div>
+                                      ) : (
+                                        selectedProject.containerLogs.map((log, i) => (
+                                          <div key={i} className="flex gap-4">
+                                            <span className="text-zinc-600 shrink-0 select-none">{(i + 1).toString().padStart(4, '0')}</span>
+                                            <span className={
+                                              log.toLowerCase().includes('error') ? 'text-red-400' : 
+                                              log.toLowerCase().includes('warn') ? 'text-amber-400' :
+                                              'text-zinc-300'
+                                            }>
+                                              {log}
+                                            </span>
+                                          </div>
+                                        ))
+                                      )}
+                                      <div ref={logEndRef} />
+                                    </div>
+                                  </ScrollArea>
+                                </TabsContent>
+                              </CardContent>
+                            </Card>
+                          </Tabs>
                         </TabsContent>
                       </Tabs>
                     </motion.div>

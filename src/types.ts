@@ -14,7 +14,8 @@ export interface Project {
   config: ProjectConfig;
   createdAt: string;
   status?: ProjectStatus;
-  logs?: string[];
+  containerLogs?: string[];
+  projectLogs?: string[];
   containerId?: string;
   dbContainerId?: string;
   port?: string;
