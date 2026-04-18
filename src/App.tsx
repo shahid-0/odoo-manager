@@ -46,16 +46,17 @@ export default function App() {
 
   const logEndRef = useRef<HTMLDivElement>(null);
 
+  const fetchOrgs = async () => {
+    try {
+      const res = await fetch('/api/organizations');
+      const data = await res.json();
+      setOrganizations(data);
+    } catch (e) {
+      console.error("Failed to fetch organizations", e);
+    }
+  };
+
   useEffect(() => {
-    const fetchOrgs = async () => {
-      try {
-        const res = await fetch('/api/organizations');
-        const data = await res.json();
-        setOrganizations(data);
-      } catch (e) {
-        console.error("Failed to fetch organizations", e);
-      }
-    };
     fetchOrgs();
   }, []);
 
@@ -957,6 +958,7 @@ export default function App() {
                                         onChange={e => updateProject({ name: e.target.value })}
                                       />
                                     </div>
+{/* 
                                     <div className="space-y-1.5">
                                       <Label className="text-xs font-medium text-zinc-500">Master Password</Label>
                                       <Input
@@ -966,6 +968,7 @@ export default function App() {
                                         onChange={e => updateProject({ config: { ...selectedProject.config, masterPassword: e.target.value } })}
                                       />
                                     </div>
+                                    */}
                                     <div className="space-y-1.5">
                                       <Label className="text-xs font-medium text-zinc-500">Description</Label>
                                       <Textarea
@@ -979,9 +982,11 @@ export default function App() {
                                 </CardContent>
                               </Card>
 
+{/* 
                               {selectedProject.config.includePostgres && (
-                                <BackupManager projectId={selectedProject.id} />
+                                <BackupManager projectId={selectedProject.id} onRefresh={fetchOrgs} />
                               )}
+                              */}
                             </div>
 
                             {/* Section: Odoo Config File */}

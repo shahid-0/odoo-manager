@@ -15,12 +15,21 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
-interface Props {
+interface BackupManagerProps {
   projectId: string;
+  onRefresh?: () => void;
 }
 
-export const BackupManager: React.FC<Props> = ({ projectId }) => {
-  const { backups, loading, actionInProgress, triggerBackup, restoreBackup, deleteBackup, downloadBackup } = useBackups(projectId);
+export function BackupManager({ projectId, onRefresh }: BackupManagerProps) {
+  const { 
+    backups, 
+    loading, 
+    actionInProgress, 
+    triggerBackup, 
+    restoreBackup, 
+    deleteBackup,
+    downloadBackup 
+  } = useBackups(projectId, onRefresh);
   const [restoreConfirmFile, setRestoreConfirmFile] = React.useState<string | null>(null);
 
   const formatSize = (bytes: number) => {

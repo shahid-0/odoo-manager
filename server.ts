@@ -648,6 +648,9 @@ async function startServer() {
   app.post("/api/projects/:projectId/backup", async (req, res) => {
     const { projectId } = req.params;
     const { neutralize, withFilestore } = req.body;
+    organizations = appendProjectLog(organizations, projectId, `💾 Initiating backup (${withFilestore ? 'with filestore' : 'no filestore'}, ${neutralize ? 'neutralized' : 'exact'})...`);
+    await saveMetadata(organizations);
+
     try {
       let project: Project | undefined;
       for (const org of organizations) {
@@ -659,9 +662,12 @@ async function startServer() {
       const meta = await backupOdooDatabase(project, { 
         neutralize: !!neutralize, 
         withFilestore: !!withFilestore 
+      }, async (msg) => {
+        organizations = appendProjectLog(organizations, projectId, msg);
+        await saveMetadata(organizations);
       });
       
-      organizations = appendProjectLog(organizations, projectId, `💾 Backup created: ${meta.filename} (${withFilestore ? 'with filestore' : 'no filestore'}, ${neutralize ? 'neutralized' : 'exact'})`);
+      organizations = appendProjectLog(organizations, projectId, `✅ Backup complete: ${meta.filename}`);
       await saveMetadata(organizations);
       
       res.json(meta);
@@ -683,6 +689,9 @@ async function startServer() {
   app.post("/api/projects/:projectId/restore", async (req, res) => {
     const { projectId } = req.params;
     const { filepath } = req.body;
+    organizations = appendProjectLog(organizations, projectId, `🔄 Starting restoration from: ${path.basename(filepath)}...`);
+    await saveMetadata(organizations);
+
     try {
       let project: Project | undefined;
       for (const org of organizations) {
@@ -691,9 +700,12 @@ async function startServer() {
       }
       if (!project) return res.status(404).json({ error: "Project not found" });
 
-      await restoreOdooDatabase(project, filepath);
+      await restoreOdooDatabase(docker, project, filepath, async (msg) => {
+        organizations = appendProjectLog(organizations, projectId, msg);
+        await saveMetadata(organizations);
+      });
       
-      organizations = appendProjectLog(organizations, projectId, `🔄 Database restored from: ${path.basename(filepath)}`);
+      organizations = appendProjectLog(organizations, projectId, `✅ Database successfully restored from ${path.basename(filepath)}.`);
       await saveMetadata(organizations);
       
       res.json({ success: true });

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { BackupMeta } from '../backup';
 import { toast } from 'sonner';
 
-export function useBackups(projectId: string | null) {
+export function useBackups(projectId: string | null, onSuccess?: () => void) {
   const [backups, setBackups] = useState<BackupMeta[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +40,7 @@ export function useBackups(projectId: string | null) {
       const newBackup = await res.json();
       setBackups(prev => [newBackup, ...prev]);
       toast.success('Backup created successfully');
+      onSuccess?.();
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -61,6 +62,7 @@ export function useBackups(projectId: string | null) {
         throw new Error(errorData.error || 'Restore failed');
       }
       toast.success('Database restored successfully');
+      onSuccess?.();
     } catch (err: any) {
       toast.error(err.message);
     } finally {

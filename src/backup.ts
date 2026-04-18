@@ -147,10 +147,17 @@ export async function restoreOdooDatabase(
       Cmd: ['createdb', '-U', project.config.dbUser, project.config.dbName],
       Env: [`PGPASSWORD=${project.config.dbPassword}`]
     });
-    await createExec.start({});
+    const createStream = await createExec.start({});
+    await new Promise((resolve) => createStream.on('end', resolve));
+    
+    const createStatus = await createExec.inspect();
+    if (createStatus.ExitCode !== 0 && createStatus.ExitCode !== null) {
+      // It's possible it already exists if drop failed
+      onLog?.(`Note: Database creation returned code ${createStatus.ExitCode}. Proceeding to restore...`);
+    }
 
     onLog?.(`Piping SQL content to psql...`);
-    const fileContent = await fs.readFile(backupFilepath, 'utf8');
+    const fileBuffer = await fs.readFile(backupFilepath);
 
     const exec = await dbContainer.exec({
       Cmd: ['psql', '-U', project.config.dbUser, '-d', project.config.dbName, '--no-password'],
@@ -167,14 +174,14 @@ export async function restoreOdooDatabase(
       stream.on('end', async () => {
         const inspectStatus = await exec.inspect();
         if (inspectStatus.ExitCode === 0) {
-          console.log(`[RESTORE] SQL restore complete.`);
+          onLog?.(`✅ SQL restore complete.`);
           resolve();
         } else {
-          console.error(`[RESTORE] psql failed with code ${inspectStatus.ExitCode}`);
+          onLog?.(`❌ psql failed with code ${inspectStatus.ExitCode}`);
           reject(new Error(`psql exit code ${inspectStatus.ExitCode}`));
         }
       });
-      stream.write(fileContent);
+      stream.write(fileBuffer);
       stream.end();
     });
 
