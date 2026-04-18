@@ -18,6 +18,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { Organization, Project, ProjectConfig, ProjectStatus, OdooVersion } from './types';
 import { ODOO_VERSIONS, DEFAULT_PROJECT_CONFIG } from './constants';
 import { generateDockerCompose } from './lib/docker-utils';
+import { ContainerStats } from './components/ContainerStats';
 
 export default function App() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -892,6 +893,22 @@ export default function App() {
                           </div>
                         </CardContent>
                       </Card>
+                      
+                      {selectedProject.status === 'running' && (
+                        <div className="space-y-6">
+                           <ContainerStats 
+                             projectId={selectedProject.id} 
+                             title="Odoo Container Resources" 
+                           />
+                           {selectedProject.config.includePostgres && (
+                             <ContainerStats 
+                               projectId={selectedProject.id} 
+                               type="db" 
+                               title="Database Container Resources" 
+                             />
+                           )}
+                        </div>
+                      )}
 
                       <Tabs defaultValue="settings" className="w-full">
                         <TabsList className="grid w-full grid-cols-3 mb-8">

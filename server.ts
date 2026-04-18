@@ -3,9 +3,9 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import Docker from "dockerode";
-
 import fs from "fs/promises";
 import { Organization, Project } from "./src/types";
+import { streamContainerStats } from "./src/stats";
 
 const docker = new Docker();
 const __filename = fileURLToPath(import.meta.url);
@@ -553,6 +553,44 @@ async function startServer() {
     } catch (error) {
       res.status(500).json({ error: String(error) });
     }
+  });
+
+  app.get("/api/projects/:id/stats/stream", async (req, res) => {
+    const projectId = req.params.id;
+    const type = req.query.type as string; // 'odoo' or 'db'
+    
+    let containerId: string | undefined;
+    for (const org of organizations) {
+      const p = org.projects.find(proj => proj.id === projectId);
+      if (p) {
+        containerId = type === 'db' ? p.dbContainerId : p.containerId;
+        break;
+      }
+    }
+
+    if (!containerId) {
+      return res.status(404).json({ error: "Container not found or project missing" });
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const stopStreaming = streamContainerStats(
+      docker,
+      containerId,
+      (stats) => {
+        res.write(`data: ${JSON.stringify(stats)}\n\n`);
+      },
+      (err) => {
+        res.write(`event: error\ndata: ${JSON.stringify({ message: err.message })}\n\n`);
+      }
+    );
+
+    req.on('close', () => {
+      stopStreaming();
+    });
   });
 
   // Vite middleware for development
