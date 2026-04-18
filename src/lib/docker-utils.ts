@@ -1,8 +1,11 @@
 import yaml from 'js-yaml';
 import { ProjectConfig } from '../types';
 
-export function generateDockerCompose(projectName: string, config: ProjectConfig): string {
+export function generateDockerCompose(projectName: string, config: ProjectConfig, projectId?: string): string {
   const safeName = projectName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  const idSuffix = projectId ? `-${projectId.slice(0, 8)}` : '';
+  const webVolume = `${safeName}-web-data${idSuffix}`;
+  const dbVolume = `${safeName}-db-data${idSuffix}`;
 
   const services: any = {
     web: {
@@ -10,7 +13,7 @@ export function generateDockerCompose(projectName: string, config: ProjectConfig
       depends_on: config.includePostgres ? ['db'] : [],
       ports: [`${config.hostPort || 8069}:8069`],
       volumes: [
-        'odoo-web-data:/var/lib/odoo',
+        `${webVolume}:/var/lib/odoo`,
         './config:/etc/odoo',
       ],
       environment: [
@@ -51,7 +54,7 @@ export function generateDockerCompose(projectName: string, config: ProjectConfig
         `POSTGRES_USER=${config.dbUser}`,
         `PGDATA=/var/lib/postgresql/data/pgdata`,
       ],
-      volumes: ['odoo-db-data:/var/lib/postgresql/data/pgdata'],
+      volumes: [`${dbVolume}:/var/lib/postgresql/data/pgdata`],
       restart: 'always',
       healthcheck: {
         test: ['CMD-SHELL', `pg_isready -U ${config.dbUser}`],
@@ -65,8 +68,8 @@ export function generateDockerCompose(projectName: string, config: ProjectConfig
   const compose: any = {
     services,
     volumes: {
-      'odoo-web-data': {},
-      'odoo-db-data': {},
+      [webVolume]: {},
+      [dbVolume]: {},
     },
   };
 

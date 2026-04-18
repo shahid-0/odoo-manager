@@ -20,10 +20,7 @@ import { ODOO_VERSIONS, DEFAULT_PROJECT_CONFIG } from './constants';
 import { generateDockerCompose } from './lib/docker-utils';
 
 export default function App() {
-  const [organizations, setOrganizations] = useState<Organization[]>(() => {
-    const saved = localStorage.getItem('odoo-manager-orgs');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [isNewOrgDialogOpen, setIsNewOrgDialogOpen] = useState(false);
@@ -48,30 +45,72 @@ export default function App() {
   const logEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    localStorage.setItem('odoo-manager-orgs', JSON.stringify(organizations));
-  }, [organizations]);
+    const fetchOrgs = async () => {
+      try {
+        const res = await fetch('/api/organizations');
+        const data = await res.json();
+        setOrganizations(data);
+      } catch (e) {
+        console.error("Failed to fetch organizations", e);
+      }
+    };
+    fetchOrgs();
+  }, []);
 
   const selectedOrg = organizations.find(org => org.id === selectedOrgId);
   const selectedProject = selectedOrg?.projects.find(p => p.id === selectedProjectId);
 
   // Helper to update project-level fields (name, description, etc.)
-  const updateProject = (updates: Partial<Project>) => {
+  const updateProject = async (updates: Partial<Project>) => {
     if (!selectedOrgId || !selectedProjectId) return;
+    
+    // Update local state for immediate UI feedback
     setOrganizations(prev => prev.map(org =>
       org.id === selectedOrgId
         ? { ...org, projects: org.projects.map(p => p.id === selectedProjectId ? { ...p, ...updates } : p) }
         : org
     ));
+
+    // Save to backend
+    try {
+      await fetch(`/api/projects/${selectedProjectId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+    } catch (e) {
+      console.error("Failed to update project", e);
+      toast.error("Failed to save changes to server");
+    }
   };
 
   // Helper to update project config fields (version, db, resources, etc.)
-  const updateProjectConfig = (configUpdates: Partial<ProjectConfig>) => {
+  const updateProjectConfig = async (configUpdates: Partial<ProjectConfig>) => {
     if (!selectedOrgId || !selectedProjectId) return;
+    
+    const project = organizations.find(o => o.id === selectedOrgId)?.projects.find(p => p.id === selectedProjectId);
+    if (!project) return;
+
+    const newConfig = { ...project.config, ...configUpdates };
+
+    // Update local state
     setOrganizations(prev => prev.map(org =>
       org.id === selectedOrgId
-        ? { ...org, projects: org.projects.map(p => p.id === selectedProjectId ? { ...p, config: { ...p.config, ...configUpdates } } : p) }
+        ? { ...org, projects: org.projects.map(p => p.id === selectedProjectId ? { ...p, config: newConfig } : p) }
         : org
     ));
+
+    // Save to backend
+    try {
+      await fetch(`/api/projects/${selectedProjectId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: newConfig })
+      });
+    } catch (e) {
+      console.error("Failed to update project config", e);
+      toast.error("Failed to save changes to server");
+    }
   };
 
   // Periodically fetch logs for the selected project if it's running or deploying
@@ -106,7 +145,7 @@ export default function App() {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [selectedProject?.logs]);
 
-  const handleCreateOrg = () => {
+  const handleCreateOrg = async () => {
     if (!newOrgName.trim()) return;
     const newOrg: Organization = {
       id: crypto.randomUUID(),
@@ -114,11 +153,23 @@ export default function App() {
       projects: [],
       createdAt: new Date().toISOString(),
     };
-    setOrganizations([...organizations, newOrg]);
-    setNewOrgName('');
-    setIsNewOrgDialogOpen(false);
-    setSelectedOrgId(newOrg.id);
-    toast.success('Organization created successfully');
+
+    try {
+      const res = await fetch('/api/organizations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newOrg)
+      });
+      if (!res.ok) throw new Error("Failed to create organization");
+      
+      setOrganizations([...organizations, newOrg]);
+      setNewOrgName('');
+      setIsNewOrgDialogOpen(false);
+      setSelectedOrgId(newOrg.id);
+      toast.success('Organization created successfully');
+    } catch (e) {
+      toast.error("Failed to create organization on server");
+    }
   };
 
   const handleCreateProject = async () => {
@@ -131,20 +182,31 @@ export default function App() {
       logs: ['[SYSTEM] Project created. Ready to deploy when you are.']
     };
     
-    setOrganizations(organizations.map(org => 
-      org.id === selectedOrgId 
-        ? { ...org, projects: [...org.projects, project] }
-        : org
-    ));
-    
-    setNewProject({
-      name: '',
-      description: '',
-      config: { ...DEFAULT_PROJECT_CONFIG },
-    });
-    setIsNewProjectDialogOpen(false);
-    setSelectedProjectId(project.id);
-    toast.success('Project created! Review your configuration and deploy when ready.');
+    try {
+      const res = await fetch(`/api/organizations/${selectedOrgId}/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(project)
+      });
+      if (!res.ok) throw new Error("Failed to create project");
+
+      setOrganizations(organizations.map(org => 
+        org.id === selectedOrgId 
+          ? { ...org, projects: [...org.projects, project] }
+          : org
+      ));
+      
+      setNewProject({
+        name: '',
+        description: '',
+        config: { ...DEFAULT_PROJECT_CONFIG },
+      });
+      setIsNewProjectDialogOpen(false);
+      setSelectedProjectId(project.id);
+      toast.success('Project created! Review your configuration and deploy when ready.');
+    } catch (e) {
+      toast.error("Failed to create project on server");
+    }
   };
 
   const handleDeployProject = async (project: Project, forcePull: boolean = false) => {
@@ -361,7 +423,7 @@ export default function App() {
 
   const handleCopyCompose = () => {
     if (!selectedProject) return;
-    const compose = selectedProject.config.customCompose ?? generateDockerCompose(selectedProject.name, selectedProject.config);
+    const compose = selectedProject.config.customCompose ?? generateDockerCompose(selectedProject.name, selectedProject.config, selectedProject.id);
     navigator.clipboard.writeText(compose);
     toast.success('Docker Compose copied to clipboard');
   };
