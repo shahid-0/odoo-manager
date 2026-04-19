@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 interface AuthUser {
   id: string;
   username: string;
-  role: "admin" | "viewer";
+  role: "admin" | "developer" | "viewer";
   lastLoginAt: string | null;
 }
 
@@ -11,6 +11,7 @@ interface AuthContextType {
   user: AuthUser | null;
   token: string | null;
   isAdmin: boolean;
+  isDeveloper: boolean;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
@@ -26,6 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const isAdmin = user?.role === "admin";
+  const isDeveloper = user?.role === "developer";
 
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
@@ -91,7 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, token, isAdmin, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, token, isAdmin, isDeveloper, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

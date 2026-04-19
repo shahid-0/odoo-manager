@@ -26,7 +26,7 @@ import UsersPage from './pages/Users';
 import api from './lib/api';
 
 export default function App() {
-  const { user, token, isAdmin, loading: authLoading, logout } = useAuth();
+  const { user, token, isAdmin, isDeveloper, loading: authLoading, logout } = useAuth();
 
   // Simple path-based routing
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
@@ -77,7 +77,7 @@ export default function App() {
   // Main app
   return (
     <AppShell user={user} isAdmin={isAdmin} logout={logout} currentPath={currentPath} navigate={navigate}>
-      <MainContent isAdmin={isAdmin} user={user} token={token} />
+      <MainContent isAdmin={isAdmin} isDeveloper={isDeveloper} user={user} token={token} />
     </AppShell>
   );
 }
@@ -143,6 +143,8 @@ function AppShell({ children, user, isAdmin, logout, currentPath, navigate }: {
               <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
                 {user.role === 'admin' ? (
                   <span className="text-purple-600">Admin</span>
+                ) : user.role === 'developer' ? (
+                  <span className="text-blue-600">Developer</span>
                 ) : (
                   <span>Viewer</span>
                 )}
@@ -170,7 +172,7 @@ function AppShell({ children, user, isAdmin, logout, currentPath, navigate }: {
 /**
  * Main content component (dashboard + project views)
  */
-function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; token: string }) {
+function MainContent({ isAdmin, isDeveloper, user, token }: { isAdmin: boolean; isDeveloper: boolean; user: any; token: string }) {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -640,7 +642,7 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
                   )}
                 </nav>
               </div>
-              {isAdmin && (
+              {(isAdmin || isDeveloper) && (
               <Dialog open={isNewProjectDialogOpen} onOpenChange={setIsNewProjectDialogOpen}>
                 <DialogTrigger render={<Button size="sm" className="gap-2" />}>
                   <Plus className="w-4 h-4" />
@@ -758,8 +760,8 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
                       <h1 className="text-2xl font-bold tracking-tight">Project Dashboard</h1>
                       <p className="text-zinc-500">Manage all your Odoo instances for {selectedOrg.name}.</p>
                     </div>
-                    {isAdmin && (
                     <div className="flex items-center gap-3">
+                      {isAdmin && (
                       <Button variant="outline" className="gap-2 text-red-500 hover:text-red-600 hover:bg-red-50" onClick={() => {
                         setOrgToDelete(selectedOrg);
                         setDeleteConfirmationText('');
@@ -767,12 +769,14 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
                         <Trash2 className="w-4 h-4" />
                         Delete Organization
                       </Button>
+                      )}
+                      {(isAdmin || isDeveloper) && (
                       <Button onClick={() => setIsNewProjectDialogOpen(true)} className="gap-2 shadow-sm rounded-lg">
                         <Plus className="w-4 h-4" />
                         New Project
                       </Button>
+                      )}
                     </div>
-                    )}
                   </div>
 
                   {selectedOrg.projects.length === 0 ? (
@@ -782,10 +786,12 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
                       </div>
                       <h3 className="text-lg font-semibold text-zinc-900 mb-2">No projects found</h3>
                       <p className="text-zinc-500 mb-8 max-w-xs text-center">Get started by creating your first Odoo deployment in this organization.</p>
+                      {(isAdmin || isDeveloper) && (
                       <Button onClick={() => setIsNewProjectDialogOpen(true)} variant="outline" className="gap-2">
                         <Plus className="w-4 h-4" />
                         Create Project
                       </Button>
+                      )}
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -910,7 +916,7 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
                             <Copy className="w-4 h-4" />
                             Copy YAML
                           </Button>
-                          {isAdmin && (
+                          {(isAdmin || isDeveloper) && (
                           <Button variant="destructive" size="sm" onClick={() => {
                             setProjectToDelete(selectedProject);
                             setDeleteConfirmationText('');
@@ -925,7 +931,7 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
                       <Card className="border-zinc-200 shadow-sm bg-white">
                         <CardContent className="p-5">
                           <div className="flex items-center gap-3 flex-wrap">
-                            {(selectedProject.status === 'idle' || selectedProject.status === 'error') && isAdmin && (
+                            {(selectedProject.status === 'idle' || selectedProject.status === 'error') && (isAdmin || isDeveloper) && (
                               <Button 
                                 size="sm" 
                                 className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
@@ -935,7 +941,7 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
                                 Deploy Containers
                               </Button>
                             )}
-                            {selectedProject.status === 'stopped' && isAdmin && (
+                            {selectedProject.status === 'stopped' && (isAdmin || isDeveloper) && (
                               <Button 
                                 size="sm" 
                                 className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
@@ -945,7 +951,7 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
                                 Start Containers
                               </Button>
                             )}
-                            {selectedProject.status === 'running' && isAdmin && (
+                            {selectedProject.status === 'running' && (isAdmin || isDeveloper) && (
                               <Button 
                                 variant="outline" 
                                 size="sm" 
@@ -956,7 +962,7 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
                                 Stop Containers
                               </Button>
                             )}
-                            {selectedProject.status !== 'deploying' && isAdmin && (
+                            {selectedProject.status !== 'deploying' && (isAdmin || isDeveloper) && (
                               <Button 
                                 variant="outline" 
                                 size="sm" 
@@ -967,7 +973,7 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
                                 Rebuild & Pull Latest
                               </Button>
                             )}
-                            {selectedProject.status !== 'deploying' && isAdmin && (
+                            {selectedProject.status !== 'deploying' && (isAdmin || isDeveloper) && (
                               <Button 
                                 variant="outline" 
                                 size="sm" 

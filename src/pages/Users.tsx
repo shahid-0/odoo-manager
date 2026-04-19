@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type FormEvent } from "react";
 import { useAuth } from "../context/AuthContext.tsx";
 import api from "../lib/api.ts";
 import { toast } from "sonner";
@@ -12,13 +12,14 @@ import {
   Eye,
   X,
   AlertCircle,
+  Terminal,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface UserRow {
   id: string;
   username: string;
-  role: "admin" | "viewer";
+  role: "admin" | "developer" | "viewer";
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -32,7 +33,7 @@ export default function Users() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [newRole, setNewRole] = useState<"admin" | "viewer">("viewer");
+  const [newRole, setNewRole] = useState<"admin" | "developer" | "viewer">("viewer");
   const [addLoading, setAddLoading] = useState(false);
 
   // Reset password modal
@@ -55,7 +56,7 @@ export default function Users() {
     fetchUsers();
   }, [fetchUsers]);
 
-  const handleAddUser = async (e: React.FormEvent) => {
+  const handleAddUser = async (e: FormEvent) => {
     e.preventDefault();
     setAddLoading(true);
     try {
@@ -88,7 +89,7 @@ export default function Users() {
     }
   };
 
-  const handleResetPassword = async (e: React.FormEvent) => {
+  const handleResetPassword = async (e: FormEvent) => {
     e.preventDefault();
     if (!resetUserId) return;
     setResetLoading(true);
@@ -195,6 +196,11 @@ export default function Users() {
                       <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-purple-100 text-purple-700">
                         <Shield className="w-3 h-3" />
                         Admin
+                      </span>
+                    ) : u.role === "developer" ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">
+                        <Terminal className="w-3 h-3" />
+                        Developer
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-zinc-100 text-zinc-600">
@@ -318,6 +324,20 @@ export default function Users() {
                       `}
                     >
                       Viewer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewRole("developer")}
+                      className={`
+                        flex-1 h-10 rounded-lg text-sm font-medium border transition-all
+                        ${
+                          newRole === "developer"
+                            ? "bg-blue-600 text-white border-blue-600"
+                            : "bg-white text-zinc-600 border-zinc-200 hover:border-zinc-300"
+                        }
+                      `}
+                    >
+                      Developer
                     </button>
                     <button
                       type="button"

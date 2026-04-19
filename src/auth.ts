@@ -17,7 +17,7 @@ const TOKEN_EXPIRY = "8h";
 export interface TokenPayload {
   userId: string;
   username: string;
-  role: "admin" | "viewer";
+  role: "admin" | "developer" | "viewer";
 }
 
 // Extend Express Request to include user payload
@@ -58,6 +58,22 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
 export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
   requireAuth(req, res, () => {
     if (req.user?.role !== "admin") {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    next();
+  });
+}
+
+/**
+ * Allows admin OR developer roles. Used for project-level mutations
+ * (deploy, start/stop, backup/restore, project CRUD) where developers
+ * need write access but user management and org-level admin actions
+ * remain restricted to admin-only via requireAdmin.
+ */
+export function requireDeveloper(req: Request, res: Response, next: NextFunction): void {
+  requireAuth(req, res, () => {
+    if (req.user?.role === "viewer") {
       res.status(403).json({ error: "Forbidden" });
       return;
     }

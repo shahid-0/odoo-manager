@@ -34,8 +34,8 @@ router.post("/", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "username, password, and role are required" });
     }
 
-    if (!["admin", "viewer"].includes(role)) {
-      return res.status(400).json({ error: "role must be 'admin' or 'viewer'" });
+    if (!["admin", "developer", "viewer"].includes(role)) {
+      return res.status(400).json({ error: "role must be 'admin', 'developer', or 'viewer'" });
     }
 
     if (password.length < 6) {
@@ -59,14 +59,14 @@ router.patch("/:id", async (req: Request, res: Response) => {
     const { id } = req.params;
     const { username, role } = req.body;
 
-    if (role && !["admin", "viewer"].includes(role)) {
-      return res.status(400).json({ error: "role must be 'admin' or 'viewer'" });
+    if (role && !["admin", "developer", "viewer"].includes(role)) {
+      return res.status(400).json({ error: "role must be 'admin', 'developer', or 'viewer'" });
     }
 
     // If demoting an admin, check that they're not the last admin
     // "Last admin" deletion guard: prevents removing the only admin account,
     // which would lock everyone out of admin functionality permanently.
-    if (role === "viewer") {
+    if (role === "viewer" || role === "developer") {
       const users = await getUsers();
       const currentUser = users.find((u) => u.id === id);
       if (currentUser?.role === "admin") {

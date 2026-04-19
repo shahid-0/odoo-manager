@@ -12,7 +12,7 @@ export interface User {
   id: string;
   username: string;
   passwordHash: string;
-  role: "admin" | "viewer";
+  role: "admin" | "developer" | "viewer";
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -78,7 +78,7 @@ export async function getUserByUsername(username: string): Promise<User | undefi
 export async function createUser(
   username: string,
   password: string,
-  role: "admin" | "viewer"
+  role: "admin" | "developer" | "viewer"
 ): Promise<User> {
   const users = await readUsers();
 
