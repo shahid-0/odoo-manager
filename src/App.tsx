@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { Plus, Folder, Building2, Download, Copy, Settings2, Trash2, LayoutDashboard, FileCode, Database, Server, Terminal, Play, Square, RefreshCw, Activity, Rocket, FlaskConical, StopCircle, CheckCircle2, AlertCircle, Loader2, ExternalLink, Package } from 'lucide-react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { Plus, Folder, Building2, Download, Copy, Settings2, Trash2, LayoutDashboard, FileCode, Database, Server, Terminal, Play, Square, RefreshCw, Activity, Rocket, FlaskConical, StopCircle, CheckCircle2, AlertCircle, Loader2, ExternalLink, Package, LogOut, Users, Shield, KeyRound } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -20,8 +20,157 @@ import { ODOO_VERSIONS, DEFAULT_PROJECT_CONFIG } from './constants';
 import { generateDockerCompose } from './lib/docker-utils';
 import { ContainerStats } from './components/ContainerStats';
 import { BackupManager } from './components/BackupManager';
+import { useAuth } from './context/AuthContext';
+import Login from './pages/Login';
+import UsersPage from './pages/Users';
+import api from './lib/api';
 
 export default function App() {
+  const { user, token, isAdmin, loading: authLoading, logout } = useAuth();
+
+  // Simple path-based routing
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+
+  useEffect(() => {
+    const handlePopState = () => setCurrentPath(window.location.pathname);
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigate = (path: string) => {
+    window.history.pushState({}, '', path);
+    setCurrentPath(path);
+  };
+
+  // If auth is loading, show spinner
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-zinc-50">
+        <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
+      </div>
+    );
+  }
+
+  // If not logged in, show Login page
+  if (!user || !token) {
+    return <Login />;
+  }
+
+  // If current path is /login and user IS authenticated, redirect to /
+  if (currentPath === '/login') {
+    navigate('/');
+  }
+
+  // Users management page (admin only)
+  if (currentPath === '/users') {
+    if (!isAdmin) {
+      navigate('/');
+      return null;
+    }
+    return (
+      <AppShell user={user} isAdmin={isAdmin} logout={logout} currentPath={currentPath} navigate={navigate}>
+        <UsersPage />
+      </AppShell>
+    );
+  }
+
+  // Main app
+  return (
+    <AppShell user={user} isAdmin={isAdmin} logout={logout} currentPath={currentPath} navigate={navigate}>
+      <MainContent isAdmin={isAdmin} user={user} token={token} />
+    </AppShell>
+  );
+}
+
+/**
+ * Shell component providing sidebar with user menu and navigation.
+ */
+function AppShell({ children, user, isAdmin, logout, currentPath, navigate }: {
+  children: ReactNode;
+  user: { id: string; username: string; role: string; lastLoginAt?: string | null };
+  isAdmin: boolean;
+  logout: () => void;
+  currentPath: string;
+  navigate: (path: string) => void;
+}) {
+  return (
+    <div className="flex h-screen bg-zinc-50 font-sans text-zinc-900">
+      <Toaster position="top-right" />
+
+      {/* Sidebar */}
+      <aside className="w-72 border-r border-zinc-200 bg-white flex flex-col">
+        <div className="p-6 flex-1">
+          <div className="flex items-center gap-2 mb-8 cursor-pointer" onClick={() => navigate('/')}>
+            <div className="w-8 h-8 bg-zinc-900 rounded-lg flex items-center justify-center">
+              <Server className="w-5 h-5 text-white" />
+            </div>
+            <h1 className="font-bold text-lg tracking-tight">Odoo Manager</h1>
+          </div>
+
+          {/* Navigation */}
+          <nav className="space-y-1 mb-6">
+            <button
+              onClick={() => navigate('/')}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                currentPath === '/' ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-500 hover:bg-zinc-50'
+              }`}
+            >
+              <LayoutDashboard className="w-4 h-4" />
+              Dashboard
+            </button>
+            {isAdmin && (
+              <button
+                onClick={() => navigate('/users')}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  currentPath === '/users' ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-500 hover:bg-zinc-50'
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                User Management
+              </button>
+            )}
+          </nav>
+        </div>
+
+        {/* User menu at bottom */}
+        <div className="p-4 border-t border-zinc-100">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center text-xs font-bold text-white uppercase">
+              {user.username.slice(0, 2)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-zinc-900 truncate">{user.username}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                {user.role === 'admin' ? (
+                  <span className="text-purple-600">Admin</span>
+                ) : (
+                  <span>Viewer</span>
+                )}
+              </p>
+            </div>
+            <button
+              onClick={logout}
+              className="p-2 rounded-lg text-zinc-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+              title="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main content area */}
+      <main className="flex-1 flex flex-col overflow-hidden">
+        {children}
+      </main>
+    </div>
+  );
+}
+
+/**
+ * Main content component (dashboard + project views)
+ */
+function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; token: string }) {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -48,9 +197,8 @@ export default function App() {
 
   const fetchOrgs = async () => {
     try {
-      const res = await fetch('/api/organizations');
-      const data = await res.json();
-      setOrganizations(data);
+      const res = await api.get('/organizations');
+      setOrganizations(res.data);
     } catch (e) {
       console.error("Failed to fetch organizations", e);
     }
@@ -76,12 +224,7 @@ export default function App() {
 
     // Save to backend
     try {
-      const res = await fetch(`/api/organizations/${selectedOrgId}/projects/${selectedProjectId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates)
-      });
-      if (!res.ok) throw new Error("Failed to update project");
+      await api.patch(`/organizations/${selectedOrgId}/projects/${selectedProjectId}`, updates);
     } catch (e) {
       console.error("Failed to update project", e);
       toast.error("Failed to save changes to server");
@@ -106,11 +249,7 @@ export default function App() {
 
     // Save to backend
     try {
-      await fetch(`/api/projects/${selectedProjectId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: newConfig })
-      });
+      await api.put(`/projects/${selectedProjectId}`, { config: newConfig });
     } catch (e) {
       console.error("Failed to update project config", e);
       toast.error("Failed to save changes to server");
@@ -124,8 +263,8 @@ export default function App() {
     const fetchLogs = async () => {
       try {
         const containerParam = selectedProject.containerId ? `?containerId=${selectedProject.containerId}` : '';
-        const res = await fetch(`/api/projects/${selectedProjectId}/logs${containerParam}`);
-        const data = await res.json();
+        const res = await api.get(`/projects/${selectedProjectId}/logs${containerParam}`);
+        const data = res.data;
         if (data.logs && data.logs.length > 0) {
           setOrganizations(prev => prev.map(org => ({
             ...org,
@@ -159,12 +298,7 @@ export default function App() {
     };
 
     try {
-      const res = await fetch('/api/organizations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newOrg)
-      });
-      if (!res.ok) throw new Error("Failed to create organization");
+      const res = await api.post('/organizations', newOrg);
       
       setOrganizations([...organizations, newOrg]);
       setNewOrgName('');
@@ -188,12 +322,7 @@ export default function App() {
     };
     
     try {
-      const res = await fetch(`/api/organizations/${selectedOrgId}/projects`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(project)
-      });
-      if (!res.ok) throw new Error("Failed to create project");
+      await api.post(`/organizations/${selectedOrgId}/projects`, project);
 
       setOrganizations(organizations.map(org => 
         org.id === selectedOrgId 
@@ -227,23 +356,13 @@ export default function App() {
 
     toast.promise(
       async () => {
-        const res = await fetch('/api/projects/deploy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            projectId: project.id, 
-            config: project.config,
-            name: project.name,
-            forcePull
-          })
+        const res = await api.post('/projects/deploy', {
+          projectId: project.id,
+          config: project.config,
+          name: project.name,
+          forcePull
         });
-        
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.message || 'Failed to deploy containers');
-        }
-        
-        return res.json();
+        return res.data;
       },
       {
         loading: 'Deploying containers...',
@@ -283,22 +402,12 @@ export default function App() {
 
     toast.promise(
       async () => {
-        const res = await fetch('/api/projects/test-config', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            projectId: project.id, 
-            config: project.config,
-            name: project.name 
-          })
+        const res = await api.post('/projects/test-config', {
+          projectId: project.id,
+          config: project.config,
+          name: project.name
         });
-        
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.message || 'Configuration test failed');
-        }
-        
-        return res.json();
+        return res.data;
       },
       {
         loading: 'Testing configuration...',
@@ -330,16 +439,11 @@ export default function App() {
     if (!project.containerId) return;
     toast.promise(
       async () => {
-        const res = await fetch(`/api/projects/${project.id}/stop`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            containerId: project.containerId,
-            dbContainerId: project.dbContainerId 
-          })
+        const res = await api.post(`/projects/${project.id}/stop`, {
+          containerId: project.containerId,
+          dbContainerId: project.dbContainerId
         });
-        if (!res.ok) throw new Error('Failed to stop container');
-        return res.json();
+        return res.data;
       },
       {
         loading: 'Stopping containers...',
@@ -363,16 +467,11 @@ export default function App() {
     if (!project.containerId) return;
     toast.promise(
       async () => {
-        const res = await fetch(`/api/projects/${project.id}/start`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            containerId: project.containerId,
-            dbContainerId: project.dbContainerId 
-          })
+        const res = await api.post(`/projects/${project.id}/start`, {
+          containerId: project.containerId,
+          dbContainerId: project.dbContainerId
         });
-        if (!res.ok) throw new Error('Failed to start container');
-        return res.json();
+        return res.data;
       },
       {
         loading: 'Starting containers...',
@@ -398,17 +497,14 @@ export default function App() {
 
     toast.promise(
       async () => {
-        const res = await fetch(`/api/projects/${project.id}`, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        const res = await api.delete(`/projects/${project.id}`, {
+          data: {
             containerId: project.containerId,
             dbContainerId: project.dbContainerId,
             name: project.name
-          })
+          }
         });
-        if (!res.ok) throw new Error('Failed to delete containers');
-        return res.json();
+        return res.data;
       },
       {
         loading: 'Deleting project and containers...',
@@ -433,81 +529,24 @@ export default function App() {
     toast.success('Docker Compose copied to clipboard');
   };
 
+  // Show "Change your password" banner if using default admin credentials on first login
+  const showPasswordBanner = user.username === 'admin' && user.lastLoginAt === null;
 
   return (
-    <div className="flex h-screen bg-zinc-50 font-sans text-zinc-900">
-      <Toaster position="top-right" />
-      
-      {/* Sidebar */}
-      <aside className="w-72 border-r border-zinc-200 bg-white flex flex-col">
-        <div className="p-6">
-          <div className="flex items-center gap-2 mb-8">
-            <div className="w-8 h-8 bg-zinc-900 rounded-lg flex items-center justify-center">
-              <Server className="w-5 h-5 text-white" />
-            </div>
-            <h1 className="font-bold text-lg tracking-tight">Odoo Manager</h1>
-          </div>
-
-          <div className="space-y-1">
-            <div className="flex items-center justify-between mb-2 px-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Organizations</span>
-              <Dialog open={isNewOrgDialogOpen} onOpenChange={setIsNewOrgDialogOpen}>
-                <DialogTrigger render={<Button variant="ghost" size="icon" className="h-6 w-6" />}>
-                  <Plus className="h-4 w-4" />
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>New Organization</DialogTitle>
-                    <DialogDescription>Create a new workspace for your Odoo projects.</DialogDescription>
-                  </DialogHeader>
-                  <div className="py-4">
-                    <Label htmlFor="org-name">Organization Name</Label>
-                    <Input 
-                      id="org-name" 
-                      value={newOrgName} 
-                      onChange={(e) => setNewOrgName(e.target.value)}
-                      placeholder="e.g. Acme Corp"
-                      className="mt-2"
-                    />
-                  </div>
-                  <DialogFooter>
-                    <Button onClick={handleCreateOrg}>Create Organization</Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
-            
-            <ScrollArea className="h-[calc(100vh-200px)]">
-              {organizations.map(org => (
-                <button
-                  key={org.id}
-                  onClick={() => {
-                    setSelectedOrgId(org.id);
-                    setSelectedProjectId(null);
-                  }}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
-                    selectedOrgId === org.id ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-500 hover:bg-zinc-50'
-                  }`}
-                >
-                  <Building2 className="w-4 h-4" />
-                  <span className="text-sm font-medium truncate">{org.name}</span>
-                  {org.projects.length > 0 && (
-                    <Badge variant="secondary" className="ml-auto text-[10px] px-1.5 h-4">
-                      {org.projects.length}
-                    </Badge>
-                  )}
-                </button>
-              ))}
-            </ScrollArea>
-          </div>
+    <>
+      {showPasswordBanner && (
+        <div className="bg-amber-50 border-b border-amber-200 px-6 py-3 flex items-center gap-3">
+          <KeyRound className="w-4 h-4 text-amber-600 flex-shrink-0" />
+          <p className="text-sm text-amber-800">
+            <strong>Security notice:</strong> You are using the default admin credentials. Please change your password from the <button onClick={() => { window.history.pushState({}, '', '/users'); window.dispatchEvent(new PopStateEvent('popstate')); }} className="underline font-semibold hover:text-amber-900">User Management</button> page.
+          </p>
         </div>
-      </aside>
+      )}
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col overflow-hidden">
+      {/* Content Area */}
+      <div className="flex-1 overflow-y-auto bg-zinc-50">
         {selectedOrg ? (
           <>
-            {/* Header */}
             <header className="h-16 border-b border-zinc-200 bg-white px-8 flex items-center justify-between sticky top-0 z-10">
               <div className="flex items-center gap-4">
                 <div 
@@ -554,6 +593,7 @@ export default function App() {
                   )}
                 </nav>
               </div>
+              {isAdmin && (
               <Dialog open={isNewProjectDialogOpen} onOpenChange={setIsNewProjectDialogOpen}>
                 <DialogTrigger render={<Button size="sm" className="gap-2" />}>
                   <Plus className="w-4 h-4" />
@@ -658,6 +698,7 @@ export default function App() {
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
+              )}
             </header>
 
             {/* Content Area */}
@@ -670,10 +711,12 @@ export default function App() {
                       <h1 className="text-2xl font-bold tracking-tight">Project Dashboard</h1>
                       <p className="text-zinc-500">Manage all your Odoo instances for {selectedOrg.name}.</p>
                     </div>
+                    {isAdmin && (
                     <Button onClick={() => setIsNewProjectDialogOpen(true)} className="gap-2 shadow-sm rounded-lg">
                       <Plus className="w-4 h-4" />
                       New Project
                     </Button>
+                    )}
                   </div>
 
                   {selectedOrg.projects.length === 0 ? (
@@ -811,12 +854,14 @@ export default function App() {
                             <Copy className="w-4 h-4" />
                             Copy YAML
                           </Button>
+                          {isAdmin && (
                           <Button variant="destructive" size="sm" onClick={() => {
                             setProjectToDelete(selectedProject);
                             setDeleteConfirmationText('');
                           }}>
                             <Trash2 className="w-4 h-4" />
                           </Button>
+                          )}
                         </div>
                       </div>
 
@@ -824,7 +869,7 @@ export default function App() {
                       <Card className="border-zinc-200 shadow-sm bg-white">
                         <CardContent className="p-5">
                           <div className="flex items-center gap-3 flex-wrap">
-                            {(selectedProject.status === 'idle' || selectedProject.status === 'error') && (
+                            {(selectedProject.status === 'idle' || selectedProject.status === 'error') && isAdmin && (
                               <Button 
                                 size="sm" 
                                 className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
@@ -834,7 +879,7 @@ export default function App() {
                                 Deploy Containers
                               </Button>
                             )}
-                            {selectedProject.status === 'stopped' && (
+                            {selectedProject.status === 'stopped' && isAdmin && (
                               <Button 
                                 size="sm" 
                                 className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
@@ -844,7 +889,7 @@ export default function App() {
                                 Start Containers
                               </Button>
                             )}
-                            {selectedProject.status === 'running' && (
+                            {selectedProject.status === 'running' && isAdmin && (
                               <Button 
                                 variant="outline" 
                                 size="sm" 
@@ -855,7 +900,7 @@ export default function App() {
                                 Stop Containers
                               </Button>
                             )}
-                            {selectedProject.status !== 'deploying' && (
+                            {selectedProject.status !== 'deploying' && isAdmin && (
                               <Button 
                                 variant="outline" 
                                 size="sm" 
@@ -866,7 +911,7 @@ export default function App() {
                                 Rebuild & Pull Latest
                               </Button>
                             )}
-                            {selectedProject.status !== 'deploying' && (
+                            {selectedProject.status !== 'deploying' && isAdmin && (
                               <Button 
                                 variant="outline" 
                                 size="sm" 
@@ -1370,13 +1415,40 @@ export default function App() {
               </div>
               <h2 className="text-2xl font-bold mb-3">Welcome to Odoo Manager</h2>
               <p className="text-zinc-500 mb-8">Get started by creating an organization to group your Odoo projects.</p>
+              {isAdmin && (
               <Button onClick={() => setIsNewOrgDialogOpen(true)} className="w-full h-12 text-lg">
                 Create First Organization
               </Button>
+              )}
+              {!isAdmin && (
+              <p className="text-zinc-400 text-sm">Ask an admin to create an organization.</p>
+              )}
             </div>
           </div>
         )}
-      </main>
+      </div>
+      {/* New Organization Dialog */}
+      <Dialog open={isNewOrgDialogOpen} onOpenChange={setIsNewOrgDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New Organization</DialogTitle>
+            <DialogDescription>Create a new workspace for your Odoo projects.</DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="org-name">Organization Name</Label>
+            <Input 
+              id="org-name" 
+              value={newOrgName} 
+              onChange={(e) => setNewOrgName(e.target.value)}
+              placeholder="e.g. Acme Corp"
+              className="mt-2"
+            />
+          </div>
+          <DialogFooter>
+            <Button onClick={handleCreateOrg}>Create Organization</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Project Dialog */}
       <Dialog open={!!projectToDelete} onOpenChange={(open) => {
@@ -1426,6 +1498,6 @@ export default function App() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }

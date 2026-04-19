@@ -7,6 +7,10 @@ import fs from "fs/promises";
 import { Organization, Project } from "./src/types";
 import { streamContainerStats } from "./src/stats";
 import { backupOdooDatabase, restoreOdooDatabase, listBackups, deleteBackup } from "./src/backup";
+import { initUserStore } from "./src/users";
+import { requireAuth, requireAdmin } from "./src/auth";
+import authRoutes from "./src/routes/auth";
+import userRoutes from "./src/routes/users";
 
 const docker = new Docker();
 const __filename = fileURLToPath(import.meta.url);
@@ -58,23 +62,39 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Initialize user store — creates default admin if data/users.json is missing
+  await initUserStore();
+
+  // Mount auth routes (login, logout, /me) — login has its own rate limiter
+  app.use("/api/auth", authRoutes);
+
+  // Mount user management routes (admin-only, middleware applied inside)
+  app.use("/api/users", userRoutes);
+
   // Persistent storage for organizations and projects
   let organizations: Organization[] = await loadMetadata();
   const deploymentLogs: Record<string, string[]> = {};
 
-  // API routes
-  app.get("/api/organizations", (req, res) => {
+  // ─── Route-level middleware application pattern ───
+  // GET (read) routes use requireAuth: both admin and viewer roles can access.
+  // POST/PUT/PATCH/DELETE (mutation) routes use requireAdmin: only admin can mutate.
+  // This pattern keeps authorization declarative at the route level rather than
+  // scattering role checks inside individual handlers.
+
+  // API routes — READ (requireAuth: admin + viewer)
+  app.get("/api/organizations", requireAuth, (req, res) => {
     res.json(organizations);
   });
 
-  app.post("/api/organizations", async (req, res) => {
+  // MUTATION routes (requireAdmin: admin only)
+  app.post("/api/organizations", requireAdmin, async (req, res) => {
     const org = req.body as Organization;
     organizations.push(org);
     await saveMetadata(organizations);
     res.json(org);
   });
 
-  app.post("/api/organizations/:orgId/projects", async (req, res) => {
+  app.post("/api/organizations/:orgId/projects", requireAdmin, async (req, res) => {
     const { orgId } = req.params;
     const project = req.body as Project;
     const org = organizations.find(o => o.id === orgId);
@@ -85,7 +105,7 @@ async function startServer() {
     res.json(project);
   });
 
-  app.put("/api/projects/:projectId", async (req, res) => {
+  app.put("/api/projects/:projectId", requireAdmin, async (req, res) => {
     const { projectId } = req.params;
     const updates = req.body;
     let updated = false;
@@ -109,7 +129,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/projects/deploy", async (req, res) => {
+  app.post("/api/projects/deploy", requireAdmin, async (req, res) => {
     const { projectId, config, name, forcePull } = req.body;
     
     organizations = appendProjectLog(organizations, projectId, `🚀 Deployment started (Force Pull: ${forcePull})`);
@@ -291,7 +311,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/projects/test-config", async (req, res) => {
+  app.post("/api/projects/test-config", requireAdmin, async (req, res) => {
     const { config, name } = req.body;
     const results: string[] = [];
     
@@ -409,7 +429,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/projects/:id/logs", async (req, res) => {
+  app.get("/api/projects/:id/logs", requireAuth, async (req, res) => {
     const containerId = req.query.containerId as string;
     const projectId = req.params.id;
 
@@ -456,7 +476,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/projects/:id/stop", async (req, res) => {
+  app.post("/api/projects/:id/stop", requireAdmin, async (req, res) => {
     const { containerId, dbContainerId } = req.body;
     try {
       // Stop Odoo container
@@ -490,7 +510,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/projects/:id/start", async (req, res) => {
+  app.post("/api/projects/:id/start", requireAdmin, async (req, res) => {
     const { containerId, dbContainerId } = req.body;
     try {
       let port;
@@ -535,7 +555,7 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/projects/:id", async (req, res) => {
+  app.delete("/api/projects/:id", requireAdmin, async (req, res) => {
     const projectId = req.params.id;
     const { containerId, dbContainerId, name } = req.body;
     
@@ -580,7 +600,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/projects/:id/stats/stream", async (req, res) => {
+  app.get("/api/projects/:id/stats/stream", requireAuth, async (req, res) => {
     const projectId = req.params.id;
     const type = req.query.type as string; // 'odoo' or 'db'
     
@@ -618,7 +638,7 @@ async function startServer() {
     });
   });
 
-  app.get("/api/projects/:id", (req, res) => {
+  app.get("/api/projects/:id", requireAuth, (req, res) => {
     const { id } = req.params;
     for (const org of organizations) {
       const p = org.projects.find(proj => proj.id === id);
@@ -627,7 +647,7 @@ async function startServer() {
     res.status(404).json({ error: "Project not found" });
   });
 
-  app.patch("/api/organizations/:orgId/projects/:projectId", async (req, res) => {
+  app.patch("/api/organizations/:orgId/projects/:projectId", requireAdmin, async (req, res) => {
     const { orgId, projectId } = req.params;
     const updates = req.body;
 
@@ -645,7 +665,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.post("/api/projects/:projectId/backup", async (req, res) => {
+  app.post("/api/projects/:projectId/backup", requireAdmin, async (req, res) => {
     const { projectId } = req.params;
     const { neutralize, withFilestore } = req.body;
     organizations = appendProjectLog(organizations, projectId, `💾 Initiating backup (${withFilestore ? 'with filestore' : 'no filestore'}, ${neutralize ? 'neutralized' : 'exact'})...`);
@@ -676,7 +696,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/projects/:projectId/backups", async (req, res) => {
+  app.get("/api/projects/:projectId/backups", requireAuth, async (req, res) => {
     const { projectId } = req.params;
     try {
       const backups = await listBackups(projectId);
@@ -686,7 +706,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/projects/:projectId/restore", async (req, res) => {
+  app.post("/api/projects/:projectId/restore", requireAdmin, async (req, res) => {
     const { projectId } = req.params;
     const { filepath } = req.body;
     organizations = appendProjectLog(organizations, projectId, `🔄 Starting restoration from: ${path.basename(filepath)}...`);
@@ -714,7 +734,7 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/projects/:projectId/backups/:filename", async (req, res) => {
+  app.delete("/api/projects/:projectId/backups/:filename", requireAdmin, async (req, res) => {
     const { projectId, filename } = req.params;
     try {
       const backups = await listBackups(projectId);
@@ -728,7 +748,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/projects/:projectId/backups/:filename/download", async (req, res) => {
+  app.get("/api/projects/:projectId/backups/:filename/download", requireAuth, async (req, res) => {
     const { projectId, filename } = req.params;
     try {
       const backups = await listBackups(projectId);
