@@ -189,6 +189,7 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
   });
 
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [orgToDelete, setOrgToDelete] = useState<Organization | null>(null);
   const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
 
   const [showAdvancedCompose, setShowAdvancedCompose] = useState(false);
@@ -492,6 +493,27 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
     );
   };
 
+  const handleDeleteOrg = async (org: Organization) => {
+    toast.promise(
+      async () => {
+        const res = await api.delete(`/organizations/${org.id}`);
+        return res.data;
+      },
+      {
+        loading: 'Deleting organization...',
+        success: () => {
+          setOrganizations(organizations.filter(o => o.id !== org.id));
+          if (selectedOrgId === org.id) {
+             setSelectedOrgId(null);
+             setSelectedProjectId(null);
+          }
+          return 'Organization deleted successfully.';
+        },
+        error: (err) => err.response?.data?.error || 'Failed to delete organization.'
+      }
+    );
+  };
+
   const handleDeleteProject = (project: Project) => {
     if (!selectedOrgId) return;
 
@@ -551,11 +573,34 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
               <div className="flex items-center gap-4">
                 <div 
                   className="flex items-center gap-2 cursor-pointer hover:text-zinc-600 transition-colors"
-                  onClick={() => setSelectedProjectId(null)}
+                  onClick={() => { setSelectedOrgId(null); setSelectedProjectId(null); }}
                 >
                   <Building2 className="w-5 h-5" />
-                  <h2 className="text-lg font-semibold">{selectedOrg.name}</h2>
+                  <span className="font-semibold text-lg hidden sm:inline">Organizations</span>
                 </div>
+                
+                <Separator orientation="vertical" className="h-4" />
+                
+                <Select 
+                  value={selectedOrgId || ''} 
+                  onValueChange={(val) => {
+                    setSelectedOrgId(val);
+                    setSelectedProjectId(null);
+                  }}
+                >
+                  <SelectTrigger className="h-8 border-none bg-transparent hover:bg-zinc-50 font-semibold text-lg gap-2 px-3 focus:ring-0 w-auto">
+                    <SelectValue placeholder="Select Organization">
+                      {organizations.find(o => o.id === selectedOrgId)?.name}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {organizations.map(org => (
+                      <SelectItem key={org.id} value={org.id}>
+                        {org.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 
                 <Separator orientation="vertical" className="h-4" />
                 
@@ -565,7 +610,7 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
                     onClick={() => setSelectedProjectId(null)}
                   >
                     <LayoutDashboard className="w-4 h-4" />
-                    <span>Dashboard</span>
+                    <span>Projects</span>
                   </div>
 
                   {selectedProjectId && (
@@ -575,10 +620,12 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
                         value={selectedProjectId} 
                         onValueChange={setSelectedProjectId}
                       >
-                        <SelectTrigger className="h-8 border-none bg-transparent hover:bg-zinc-50 font-medium text-sm gap-2 px-3">
+                        <SelectTrigger className="h-8 border-none bg-transparent hover:bg-zinc-50 font-medium text-sm gap-2 px-3 focus:ring-0 w-auto">
                           <div className="flex items-center gap-2">
                             <Folder className="w-4 h-4 text-zinc-500" />
-                            <SelectValue placeholder="Select Project" />
+                            <SelectValue placeholder="Select Project">
+                              {selectedOrg.projects.find(p => p.id === selectedProjectId)?.name}
+                            </SelectValue>
                           </div>
                         </SelectTrigger>
                         <SelectContent>
@@ -712,10 +759,19 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
                       <p className="text-zinc-500">Manage all your Odoo instances for {selectedOrg.name}.</p>
                     </div>
                     {isAdmin && (
-                    <Button onClick={() => setIsNewProjectDialogOpen(true)} className="gap-2 shadow-sm rounded-lg">
-                      <Plus className="w-4 h-4" />
-                      New Project
-                    </Button>
+                    <div className="flex items-center gap-3">
+                      <Button variant="outline" className="gap-2 text-red-500 hover:text-red-600 hover:bg-red-50" onClick={() => {
+                        setOrgToDelete(selectedOrg);
+                        setDeleteConfirmationText('');
+                      }}>
+                        <Trash2 className="w-4 h-4" />
+                        Delete Organization
+                      </Button>
+                      <Button onClick={() => setIsNewProjectDialogOpen(true)} className="gap-2 shadow-sm rounded-lg">
+                        <Plus className="w-4 h-4" />
+                        New Project
+                      </Button>
+                    </div>
                     )}
                   </div>
 
@@ -1407,7 +1463,7 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
             )}
           </div>
         </>
-        ) : (
+        ) : organizations.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center bg-zinc-50">
             <div className="max-w-md w-full p-8 text-center">
               <div className="w-20 h-20 bg-white shadow-sm rounded-2xl flex items-center justify-center mx-auto mb-8 border border-zinc-100">
@@ -1423,6 +1479,62 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
               {!isAdmin && (
               <p className="text-zinc-400 text-sm">Ask an admin to create an organization.</p>
               )}
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col bg-zinc-50 p-8">
+            <div className="max-w-7xl w-full mx-auto">
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h1 className="text-2xl font-bold tracking-tight">Organizations</h1>
+                  <p className="text-zinc-500">Select an organization to manage its projects.</p>
+                </div>
+                {isAdmin && (
+                <Button onClick={() => setIsNewOrgDialogOpen(true)} className="gap-2 shadow-sm rounded-lg">
+                  <Plus className="w-4 h-4" />
+                  New Organization
+                </Button>
+                )}
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {organizations.map(org => (
+                  <motion.div
+                    key={org.id}
+                    layoutId={org.id}
+                    whileHover={{ y: -4 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                  >
+                    <Card 
+                      className="group cursor-pointer border-zinc-200 hover:border-zinc-900 transition-all hover:shadow-xl bg-white overflow-hidden h-full flex flex-col"
+                      onClick={() => setSelectedOrgId(org.id)}
+                    >
+                      <CardHeader className="pb-3 px-6 pt-6">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="w-10 h-10 rounded-lg bg-zinc-50 flex items-center justify-center group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                            <Building2 className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                          </div>
+                          <Badge variant="secondary" className="bg-zinc-100 text-zinc-600 text-[10px] uppercase font-bold">
+                            {org.projects.length} {org.projects.length === 1 ? 'Project' : 'Projects'}
+                          </Badge>
+                        </div>
+                        <CardTitle className="text-xl group-hover:text-zinc-900 truncate">{org.name}</CardTitle>
+                      </CardHeader>
+                      <CardContent className="px-6 py-3 flex-1">
+                         <div className="text-xs text-zinc-500">
+                           Created on {new Date(org.createdAt).toLocaleDateString()}
+                         </div>
+                      </CardContent>
+                      <CardFooter className="px-6 pb-6 pt-0 mt-auto">
+                        <Button variant="ghost" className="w-full text-zinc-500 group-hover:text-zinc-900 group-hover:bg-zinc-50 gap-2 h-9 text-xs font-semibold">
+                          View Dashboard
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </Button>
+                      </CardFooter>
+                    </Card>
+                  </motion.div>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -1494,6 +1606,60 @@ function MainContent({ isAdmin, user, token }: { isAdmin: boolean; user: any; to
             >
               <Trash2 className="w-4 h-4 mr-2" />
               Delete Project
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Organization Dialog */}
+      <Dialog open={!!orgToDelete} onOpenChange={(open) => {
+        if (!open) {
+          setOrgToDelete(null);
+          setDeleteConfirmationText('');
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Organization</DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. This will permanently delete the <strong>{orgToDelete?.name}</strong> organization.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Label className="text-zinc-700 mb-2 block">
+              Please type <strong>{orgToDelete?.name}</strong> to confirm.
+            </Label>
+            <Input
+              value={deleteConfirmationText}
+              onChange={(e) => setDeleteConfirmationText(e.target.value)}
+              placeholder={orgToDelete?.name}
+            />
+          </div>
+          <DialogFooter className="flex-col items-center sm:flex-row gap-2">
+            {(orgToDelete?.projects.length || 0) > 0 && (
+              <p className="text-sm text-red-500 font-medium flex-1 text-left mb-2 sm:mb-0">
+                You must delete all {orgToDelete?.projects.length} project(s) first.
+              </p>
+            )}
+            <Button variant="outline" onClick={() => {
+              setOrgToDelete(null);
+              setDeleteConfirmationText('');
+            }}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              disabled={deleteConfirmationText !== orgToDelete?.name || (orgToDelete?.projects.length || 0) > 0}
+              onClick={() => {
+                if (orgToDelete) {
+                   handleDeleteOrg(orgToDelete);
+                   setOrgToDelete(null);
+                   setDeleteConfirmationText('');
+                }
+              }}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete Organization
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -105,6 +105,21 @@ async function startServer() {
     res.json(project);
   });
 
+  app.delete("/api/organizations/:orgId", requireAdmin, async (req, res) => {
+    const { orgId } = req.params;
+    
+    const org = organizations.find(o => o.id === orgId);
+    if (!org) return res.status(404).json({ error: "Organization not found" });
+    
+    if (org.projects.length > 0) {
+      return res.status(400).json({ error: "Please delete all projects before deleting the organization." });
+    }
+    
+    organizations = organizations.filter(o => o.id !== orgId);
+    await saveMetadata(organizations);
+    res.json({ success: true });
+  });
+
   app.put("/api/projects/:projectId", requireAdmin, async (req, res) => {
     const { projectId } = req.params;
     const updates = req.body;
