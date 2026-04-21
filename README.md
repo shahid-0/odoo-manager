@@ -18,7 +18,18 @@ Regardless of the installation method, you must have:
 - If running natively via Node.js: **Node.js 20+** installed.
 
 > [!IMPORTANT]
-> Because Odoo Manager connects directly to Docker to launch its target containers, the application requires access to the host's `/var/run/docker.sock`.
+> Because Odoo Manager connects directly to Docker to launch its target containers, the application requires access to the host's Docker socket.
+
+### 🔍 Finding your Docker Socket
+Depending on your Operating System, the Docker socket path may vary:
+
+| OS | Default Path | Notes |
+| :--- | :--- | :--- |
+| **Linux** | `/var/run/docker.sock` | Ensure your user has permissions (`sudo usermod -aG docker $USER`). |
+| **macOS** | `/var/run/docker.sock` | If using Docker Desktop, check **Settings > Advanced > Allow the default Docker socket to be used**. |
+| **macOS (Alt)** | `~/.docker/run/docker.sock` | Used in newer Docker Desktop versions if the default symlink is disabled. |
+| **Windows** | `//./pipe/docker_engine` | This is a named pipe. If running Odoo Manager inside Docker on Windows, use `/var/run/docker.sock` (handled by Docker Desktop). |
+
 
 ---
 
