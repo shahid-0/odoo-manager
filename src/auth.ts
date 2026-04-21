@@ -14,7 +14,7 @@ const JWT_SECRET: string = (() => {
 
 const TOKEN_EXPIRY = "8h";
 
-export interface TokenPayload {
+interface TokenPayload {
   userId: string;
   username: string;
   role: "admin" | "developer" | "viewer";

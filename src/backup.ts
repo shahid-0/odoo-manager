@@ -79,7 +79,7 @@ export async function backupOdooDatabase(
 /**
  * Drops an Odoo database using Odoo's internal API.
  */
-export async function dropOdooDatabase(project: Project, onLog?: (msg: string) => void): Promise<void> {
+async function dropOdooDatabase(project: Project, onLog?: (msg: string) => void): Promise<void> {
   if (!project.port) throw new Error("Project port not found.");
   onLog?.(`Dropping database ${project.config.dbName} via Odoo API...`);
   const odooUrl = `http://localhost:${project.port}/web/database/drop`;

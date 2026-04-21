@@ -2,7 +2,7 @@ import { OdooVersion } from './types';
 
 export const ODOO_VERSIONS: OdooVersion[] = ['17.0', '18.0', '19.0'];
 
-export const DEFAULT_ODOO_CONF = `[options]
+const DEFAULT_ODOO_CONF = `[options]
 addons_path = /mnt/extra-addons
 data_dir = /var/lib/odoo
 db_host = db
