@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  odoo-manager:
+    build: .
+    image: odoo-manager:latest
+    container_name: odoo-manager
+    ports:
+      - "3000:3000"
+    environment:
+      # REQUIRED: A securely generated random string used to sign JWT tokens.
+      # You can generate one using: openssl rand -base64 32
+      - JWT_SECRET=change-me-to-a-strong-random-secret
+    volumes:
+      # Required to allow Dockerode to communicate with the host's Docker daemon
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persist application state, organizations, and project logs
+      - odoo_manager_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  odoo_manager_data:

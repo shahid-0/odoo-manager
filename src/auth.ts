@@ -6,6 +6,13 @@ const JWT_SECRET: string = (() => {
   if (process.env.JWT_SECRET) {
     return process.env.JWT_SECRET;
   }
+  
+  if (process.env.NODE_ENV === "production") {
+    console.error("❌ CRITICAL ERROR: JWT_SECRET environment variable is missing!");
+    console.error("You MUST provide a secure JWT_SECRET in production. Exiting...");
+    process.exit(1);
+  }
+
   console.warn(
     "⚠ JWT_SECRET is not set in environment variables. Using a hardcoded dev secret — DO NOT use this in production!"
   );
