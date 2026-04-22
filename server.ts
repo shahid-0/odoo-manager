@@ -4,57 +4,20 @@ import path from "path";
 import { fileURLToPath } from "url";
 import Docker from "dockerode";
 import fs from "fs/promises";
-import { Organization, Project } from "./src/types";
-import { streamContainerStats } from "./src/stats";
-import { backupOdooDatabase, restoreOdooDatabase, listBackups, deleteBackup } from "./src/backup";
-import { initUserStore } from "./src/users";
-import { requireAuth, requireAdmin, requireDeveloper } from "./src/auth";
-import authRoutes from "./src/routes/auth";
-import userRoutes from "./src/routes/users";
+import { Organization, Project } from "./src/types.js";
+import { streamContainerStats } from "./src/stats.js";
+import { backupOdooDatabase, restoreOdooDatabase, listBackups, deleteBackup } from "./src/backup.js";
+import { initUserStore } from "./src/lib/users.js";
+import { requireAuth, requireAdmin, requireDeveloper } from "./src/auth.js";
+import authRoutes from "./src/routes/auth.js";
+import userRoutes from "./src/routes/users.js";
+import * as store from "./src/lib/store.js";
 
 const docker = new Docker();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const META_FILE = path.join(__dirname, "data", "meta.json");
-
-async function ensureDataDir() {
-  try {
-    await fs.mkdir(path.join(__dirname, "data"), { recursive: true });
-  } catch (e) {}
-}
-
-async function loadMetadata(): Promise<Organization[]> {
-  await ensureDataDir();
-  try {
-    const data = await fs.readFile(META_FILE, "utf-8");
-    return JSON.parse(data);
-  } catch (e) {
-    return [];
-  }
-}
-
-async function saveMetadata(orgs: Organization[]) {
-  await ensureDataDir();
-  await fs.writeFile(META_FILE, JSON.stringify(orgs, null, 2));
-}
-
-function appendProjectLog(orgs: Organization[], projectId: string, message: string): Organization[] {
-  const timestamp = new Date().toISOString();
-  const formattedMsg = `[${timestamp}] ${message}`;
-  
-  return orgs.map(org => ({
-    ...org,
-    projects: org.projects.map(p => {
-      if (p.id === projectId) {
-        return {
-          ...p,
-          projectLogs: [...(p.projectLogs || []), formattedMsg]
-        };
-      }
-      return p;
-    })
-  }));
-}
+// Persistent storage for organizations and projects
+// Removed: loadMetadata/saveMetadata (now handled by sqlite)
 
 async function startServer() {
   const app = express();
@@ -71,8 +34,6 @@ async function startServer() {
   // Mount user management routes (admin-only, middleware applied inside)
   app.use("/api/users", userRoutes);
 
-  // Persistent storage for organizations and projects
-  let organizations: Organization[] = await loadMetadata();
   const deploymentLogs: Record<string, string[]> = {};
 
   // ─── Route-level middleware application pattern ───
@@ -83,61 +44,48 @@ async function startServer() {
 
   // API routes — READ (requireAuth: admin + viewer)
   app.get("/api/organizations", requireAuth, (req, res) => {
-    res.json(organizations);
+    res.json(store.getOrganizations());
   });
 
   // MUTATION routes (requireAdmin: admin only)
   app.post("/api/organizations", requireAdmin, async (req, res) => {
-    const org = req.body as Organization;
-    organizations.push(org);
-    await saveMetadata(organizations);
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: "Organization name is required" });
+    const org = store.createOrganization(name);
     res.json(org);
   });
 
   app.post("/api/organizations/:orgId/projects", requireDeveloper, async (req, res) => {
     const { orgId } = req.params;
-    const project = req.body as Project;
-    const org = organizations.find(o => o.id === orgId);
+    const { name, description, config } = req.body;
+    
+    const org = store.getOrganizationById(orgId);
     if (!org) return res.status(404).json({ error: "Organization not found" });
     
-    org.projects.push(project);
-    await saveMetadata(organizations);
+    const project = store.createProject(orgId, { name, description, config });
     res.json(project);
   });
 
   app.delete("/api/organizations/:orgId", requireAdmin, async (req, res) => {
     const { orgId } = req.params;
     
-    const org = organizations.find(o => o.id === orgId);
+    const org = store.getOrganizationById(orgId);
     if (!org) return res.status(404).json({ error: "Organization not found" });
     
     if (org.projects.length > 0) {
       return res.status(400).json({ error: "Please delete all projects before deleting the organization." });
     }
     
-    organizations = organizations.filter(o => o.id !== orgId);
-    await saveMetadata(organizations);
+    store.deleteOrganization(orgId);
     res.json({ success: true });
   });
 
   app.put("/api/projects/:projectId", requireDeveloper, async (req, res) => {
     const { projectId } = req.params;
     const updates = req.body;
-    let updated = false;
-
-    organizations = organizations.map(org => ({
-      ...org,
-      projects: org.projects.map(p => {
-        if (p.id === projectId) {
-          updated = true;
-          return { ...p, ...updates };
-        }
-        return p;
-      })
-    }));
-
+    
+    const updated = store.updateProject(projectId, updates);
     if (updated) {
-      await saveMetadata(organizations);
       res.json({ success: true });
     } else {
       res.status(404).json({ error: "Project not found" });
@@ -147,8 +95,7 @@ async function startServer() {
   app.post("/api/projects/deploy", requireDeveloper, async (req, res) => {
     const { projectId, config, name, forcePull } = req.body;
     
-    organizations = appendProjectLog(organizations, projectId, `🚀 Deployment started (Force Pull: ${forcePull})`);
-    await saveMetadata(organizations);
+    store.appendProjectLog(projectId, `🚀 Deployment started (Force Pull: ${forcePull})`);
 
     try {
       // Check if docker is installed and running
@@ -293,22 +240,12 @@ async function startServer() {
       console.log(`Odoo container started on port ${port}: ${odooContainerName}`);
 
       // Update project in metadata
-      organizations = organizations.map(org => ({
-        ...org,
-        projects: org.projects.map(p => {
-          if (p.id === projectId) {
-            return {
-              ...p,
-              status: "running",
-              containerId: odooContainer.id,
-              dbContainerId: dbContainerId,
-              port: port
-            };
-          }
-          return p;
-        })
-      }));
-      await saveMetadata(organizations);
+      store.setProjectContainers(projectId, {
+        containerId: odooContainer.id,
+        dbContainerId: dbContainerId,
+        port: port,
+        status: "running"
+      });
 
       res.json({ 
         status: "running", 
@@ -506,18 +443,9 @@ async function startServer() {
         await dbContainer.stop();
         console.log(`Stopped DB container: ${dbContainerId.slice(0, 12)}`);
       }
-      organizations = organizations.map(org => ({
-        ...org,
-        projects: org.projects.map(p => {
-          if (p.id === req.params.id) {
-            return { ...p, status: 'stopped' };
-          }
-          return p;
-        })
-      }));
       
-      organizations = appendProjectLog(organizations, req.params.id, `🛑 Project containers stopped`);
-      await saveMetadata(organizations);
+      store.setProjectStatus(req.params.id, 'stopped');
+      store.appendProjectLog(req.params.id, `🛑 Project containers stopped`);
 
       res.json({ status: "stopped" });
     } catch (error) {
@@ -551,18 +479,8 @@ async function startServer() {
         console.log(`Started Odoo container: ${containerId.slice(0, 12)} on port ${port || 'unknown'}`);
       }
       // Update status in metadata
-      organizations = organizations.map(org => ({
-        ...org,
-        projects: org.projects.map(p => {
-          if (p.id === req.params.id) {
-            return { ...p, status: 'running', port: port || p.port };
-          }
-          return p;
-        })
-      }));
-
-      organizations = appendProjectLog(organizations, req.params.id, `▶️ Project containers started`);
-      await saveMetadata(organizations);
+      store.updateProject(req.params.id, { status: 'running', port: port });
+      store.appendProjectLog(req.params.id, `▶️ Project containers started`);
 
       res.json({ status: "running", port });
     } catch (error) {
@@ -602,12 +520,7 @@ async function startServer() {
         } catch(e) {}
       }
       
-      // Remove from metadata
-      organizations = organizations.map(org => ({
-        ...org,
-        projects: org.projects.filter(p => p.id !== projectId)
-      }));
-      await saveMetadata(organizations);
+      store.deleteProject(projectId);
 
       res.json({ success: true });
     } catch (error) {
@@ -619,14 +532,10 @@ async function startServer() {
     const projectId = req.params.id;
     const type = req.query.type as string; // 'odoo' or 'db'
     
-    let containerId: string | undefined;
-    for (const org of organizations) {
-      const p = org.projects.find(proj => proj.id === projectId);
-      if (p) {
-        containerId = type === 'db' ? p.dbContainerId : p.containerId;
-        break;
-      }
-    }
+    const p = store.getProjectById(projectId);
+    if (!p) return res.status(404).json({ error: "Project not found" });
+
+    const containerId = type === 'db' ? p.dbContainerId : p.containerId;
 
     if (!containerId) {
       return res.status(404).json({ error: "Container not found or project missing" });
@@ -655,56 +564,40 @@ async function startServer() {
 
   app.get("/api/projects/:id", requireAuth, (req, res) => {
     const { id } = req.params;
-    for (const org of organizations) {
-      const p = org.projects.find(proj => proj.id === id);
-      if (p) return res.json(p);
-    }
+    const p = store.getProjectById(id);
+    if (p) return res.json(p);
     res.status(404).json({ error: "Project not found" });
   });
 
   app.patch("/api/organizations/:orgId/projects/:projectId", requireDeveloper, async (req, res) => {
-    const { orgId, projectId } = req.params;
+    const { projectId } = req.params;
     const updates = req.body;
 
-    organizations = organizations.map(org => {
-      if (org.id === orgId) {
-        return {
-          ...org,
-          projects: org.projects.map(p => p.id === projectId ? { ...p, ...updates } : p)
-        };
-      }
-      return org;
-    });
-
-    await saveMetadata(organizations);
-    res.json({ success: true });
+    const updated = store.updateProject(projectId, updates);
+    if (updated) {
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: "Project not found" });
+    }
   });
 
   app.post("/api/projects/:projectId/backup", requireDeveloper, async (req, res) => {
     const { projectId } = req.params;
     const { neutralize, withFilestore } = req.body;
-    organizations = appendProjectLog(organizations, projectId, `💾 Initiating backup (${withFilestore ? 'with filestore' : 'no filestore'}, ${neutralize ? 'neutralized' : 'exact'})...`);
-    await saveMetadata(organizations);
+    store.appendProjectLog(projectId, `💾 Initiating backup (${withFilestore ? 'with filestore' : 'no filestore'}, ${neutralize ? 'neutralized' : 'exact'})...`);
 
     try {
-      let project: Project | undefined;
-      for (const org of organizations) {
-        project = org.projects.find(p => p.id === projectId);
-        if (project) break;
-      }
+      const project = store.getProjectById(projectId);
       if (!project) return res.status(404).json({ error: "Project not found" });
 
       const meta = await backupOdooDatabase(project, { 
         neutralize: !!neutralize, 
         withFilestore: !!withFilestore 
       }, async (msg) => {
-        organizations = appendProjectLog(organizations, projectId, msg);
-        await saveMetadata(organizations);
+        store.appendProjectLog(projectId, msg);
       });
       
-      organizations = appendProjectLog(organizations, projectId, `✅ Backup complete: ${meta.filename}`);
-      await saveMetadata(organizations);
-      
+      store.appendProjectLog(projectId, `✅ Backup complete: ${meta.filename}`);
       res.json(meta);
     } catch (error) {
       res.status(500).json({ error: String(error) });
@@ -724,25 +617,17 @@ async function startServer() {
   app.post("/api/projects/:projectId/restore", requireDeveloper, async (req, res) => {
     const { projectId } = req.params;
     const { filepath } = req.body;
-    organizations = appendProjectLog(organizations, projectId, `🔄 Starting restoration from: ${path.basename(filepath)}...`);
-    await saveMetadata(organizations);
+    store.appendProjectLog(projectId, `🔄 Starting restoration from: ${path.basename(filepath)}...`);
 
     try {
-      let project: Project | undefined;
-      for (const org of organizations) {
-        project = org.projects.find(p => p.id === projectId);
-        if (project) break;
-      }
+      const project = store.getProjectById(projectId);
       if (!project) return res.status(404).json({ error: "Project not found" });
 
       await restoreOdooDatabase(docker, project, filepath, async (msg) => {
-        organizations = appendProjectLog(organizations, projectId, msg);
-        await saveMetadata(organizations);
+        store.appendProjectLog(projectId, msg);
       });
       
-      organizations = appendProjectLog(organizations, projectId, `✅ Database successfully restored from ${path.basename(filepath)}.`);
-      await saveMetadata(organizations);
-      
+      store.appendProjectLog(projectId, `✅ Database successfully restored from ${path.basename(filepath)}.`);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: String(error) });

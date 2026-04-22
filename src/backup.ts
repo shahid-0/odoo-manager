@@ -29,7 +29,7 @@ export async function backupOdooDatabase(
   const masterPwd = project.config.masterPassword || 'admin';
   const backupFormat = options.withFilestore ? 'zip' : 'dump';
 
-  const backupDir = path.join(__dirname, '../data/backups', project.id);
+  const backupDir = path.join(__dirname, 'data/backups', project.id);
   if (!existsSync(backupDir)) {
     onLog?.(`Creating backup directory: ${backupDir}`);
     mkdirSync(backupDir, { recursive: true });
@@ -231,7 +231,7 @@ export async function restoreOdooDatabase(
  * Lists all backups available for a specific project.
  */
 export async function listBackups(projectId: string): Promise<BackupMeta[]> {
-  const backupDir = path.join(__dirname, '../data/backups', projectId);
+  const backupDir = path.join(__dirname, 'data/backups', projectId);
   if (!existsSync(backupDir)) return [];
 
   const files = await fs.readdir(backupDir);

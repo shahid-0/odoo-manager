@@ -1,13 +1,13 @@
 import { Router, Request, Response } from "express";
 import bcrypt from "bcryptjs";
-import { requireAdmin } from "../auth.ts";
+import { requireAdmin } from "../auth.js";
 import {
   getUsers,
   getUserById,
   createUser,
   updateUser,
   deleteUser,
-} from "../users.ts";
+} from "../lib/users.js";
 
 const router = Router();
 

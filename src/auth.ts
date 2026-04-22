@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import type { User } from "./users.ts";
+import type { User } from "./lib/users.js";
 
 const JWT_SECRET: string = (() => {
   if (process.env.JWT_SECRET) {

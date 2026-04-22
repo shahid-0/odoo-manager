@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
-import { getUserByUsername, verifyPassword, updateUser } from "../users.ts";
-import { signToken, requireAuth } from "../auth.ts";
+import { getUserByUsername, verifyPassword, updateUser } from "../lib/users.js";
+import { signToken, requireAuth } from "../auth.js";
 
 const router = Router();
 
@@ -59,7 +59,7 @@ router.get("/me", requireAuth, async (req: Request, res: Response) => {
   try {
     const payload = req.user!;
     // Fetch fresh user data to get lastLoginAt
-    const user = await (await import("../users.ts")).getUserById(payload.userId);
+    const user = await (await import("../lib/users.js")).getUserById(payload.userId);
     if (!user) {
       return res.status(401).json({ error: "Unauthorized" });
     }

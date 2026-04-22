@@ -15,7 +15,7 @@ services:
       # Required to allow Dockerode to communicate with the host's Docker daemon
       - /var/run/docker.sock:/var/run/docker.sock
       # Persist application state, organizations, and project logs
-      - odoo_manager_data:/app/data
+      - odoo_manager_data:/app/src/data
     restart: unless-stopped
 
 volumes:

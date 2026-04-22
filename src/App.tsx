@@ -293,20 +293,15 @@ function MainContent({ isAdmin, isDeveloper, user, token }: { isAdmin: boolean; 
 
   const handleCreateOrg = async () => {
     if (!newOrgName.trim()) return;
-    const newOrg: Organization = {
-      id: crypto.randomUUID(),
-      name: newOrgName,
-      projects: [],
-      createdAt: new Date().toISOString(),
-    };
 
     try {
-      const res = await api.post('/organizations', newOrg);
+      const res = await api.post('/organizations', { name: newOrgName });
+      const createdOrg = res.data;
       
-      setOrganizations([...organizations, newOrg]);
+      setOrganizations([...organizations, createdOrg]);
       setNewOrgName('');
       setIsNewOrgDialogOpen(false);
-      setSelectedOrgId(newOrg.id);
+      setSelectedOrgId(createdOrg.id);
       toast.success('Organization created successfully');
     } catch (e) {
       toast.error("Failed to create organization on server");
@@ -315,21 +310,18 @@ function MainContent({ isAdmin, isDeveloper, user, token }: { isAdmin: boolean; 
 
   const handleCreateProject = async () => {
     if (!selectedOrgId || !newProject.name.trim()) return;
-    const project: Project = {
-      id: crypto.randomUUID(),
-      ...newProject,
-      createdAt: new Date().toISOString(),
-      status: 'idle',
-      projectLogs: ['[SYSTEM] Project created. Ready to deploy when you are.'],
-      containerLogs: []
-    };
     
     try {
-      await api.post(`/organizations/${selectedOrgId}/projects`, project);
+      const res = await api.post(`/organizations/${selectedOrgId}/projects`, {
+        name: newProject.name,
+        description: newProject.description,
+        config: newProject.config
+      });
+      const createdProject = res.data;
 
       setOrganizations(organizations.map(org => 
         org.id === selectedOrgId 
-          ? { ...org, projects: [...org.projects, project] }
+          ? { ...org, projects: [...org.projects, createdProject] }
           : org
       ));
       
@@ -339,7 +331,7 @@ function MainContent({ isAdmin, isDeveloper, user, token }: { isAdmin: boolean; 
         config: { ...DEFAULT_PROJECT_CONFIG },
       });
       setIsNewProjectDialogOpen(false);
-      setSelectedProjectId(project.id);
+      setSelectedProjectId(createdProject.id);
       toast.success('Project created! Review your configuration and deploy when ready.');
     } catch (e) {
       toast.error("Failed to create project on server");
@@ -449,7 +441,7 @@ function MainContent({ isAdmin, isDeveloper, user, token }: { isAdmin: boolean; 
         return res.data;
       },
       {
-        loading: 'Stopping containers...',
+loading: 'Stopping containers...',
         success: () => {
           setOrganizations(prev => prev.map(org => ({
             ...org,
