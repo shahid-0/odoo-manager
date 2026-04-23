@@ -52,7 +52,7 @@ Running Odoo Manager in Docker is the easiest method since `docker-compose` is a
    ```text
    http://localhost:3000
    ```
-*(Odoo Manager will automatically save your application data inside the mapped `./data` directory so it persists across container restarts)*
+*(Odoo Manager will automatically save your application data inside the mapped `src/data` directory so it persists across container restarts)*
 
 ---
 
@@ -102,5 +102,58 @@ docker push your-dockerhub-username/odoo-manager:latest
 ## Tech Stack
 - **Frontend:** React, Vite, Tailwind CSS, Shadcn UI
 - **Backend:** Express, Node.js (`tsx`)
+- **Persistence:** SQLite Database (`better-sqlite3`) for metadata, logs, and users.
 - **Container Management:** Docker & `dockerode`
-- **Authentication:** Local filesystem JSON-based user caching (BCrypt + JWT)
+- **Authentication:** JWT-based auth with BCrypt password hashing.
+
+---
+
+## 📄 Docker Hub Overview
+*Copy the content below to your Docker Hub "Full Description" field:*
+
+# Odoo Manager
+**Odoo Manager** is a professional, full-stack application designed to simplify the deployment and management of Odoo instances using Docker. It provides a clean interface for handling multiple organizations, managing containers, monitoring resource usage, and performing native database backups.
+
+### 🚀 Key Features
+- **Organization & Project Hierarchy**: Group your Odoo deployments by client or organization.
+- **One-Click Deployments**: Effortlessly launch Odoo & PostgreSQL container bundles.
+- **Live Resource Monitoring**: Real-time CPU and Memory usage statistics for every instance.
+- **Native Database Backups**: Direct integration with Odoo's native backup/restore API.
+- **Persistent SQLite Backend**: All application metadata and logs are stored in a robust SQLite database.
+- **Multi-Role Auth**: Built-in Admin, Developer, and Viewer roles with JWT security.
+
+### 🛠️ Quick Start (Docker Compose)
+Create a `docker-compose.yml` file:
+
+```yaml
+version: '3.8'
+services:
+  odoo-manager:
+    image: your-username/odoo-manager:latest
+    container_name: odoo-manager
+    ports:
+      - "3000:3000"
+    environment:
+      - JWT_SECRET=generate-a-strong-secret-key
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - odoo_manager_data:/app/src/data
+    restart: unless-stopped
+
+volumes:
+  odoo_manager_data:
+```
+
+1. Replace `your-username` with your Docker Hub username.
+2. Run `docker compose up -d`.
+3. Access at `http://localhost:3000`.
+4. **Default Login**: `admin` / `admin123`.
+
+### 📋 Environment Variables
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `JWT_SECRET` | **Required.** Secret key for tokens. | - |
+| `PORT` | App port inside container. | `3000` |
+
+### 📦 Persistence
+Mount a volume to `/app/src/data` to persist your database and backups.
