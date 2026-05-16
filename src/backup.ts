@@ -16,6 +16,20 @@ export interface BackupMeta {
 }
 
 /**
+ * Extracts the admin_passwd from odoo.conf string or returns the dedicated masterPassword.
+ */
+function getMasterPassword(project: Project): string {
+  if (project.config.masterPassword) return project.config.masterPassword;
+  
+  const match = project.config.odooConf?.match(/^admin_passwd\s*=\s*(.*)$/m);
+  if (match && match[1]) {
+    return match[1].trim();
+  }
+  
+  return 'admin';
+}
+
+/**
  * Backs up an Odoo database using Odoo's internal backup API.
  */
 export async function backupOdooDatabase(
@@ -26,7 +40,7 @@ export async function backupOdooDatabase(
   if (!project.port) throw new Error("Project port not found. Is the container running?");
   
   const odooUrl = `http://localhost:${project.port}/web/database/backup`;
-  const masterPwd = project.config.masterPassword || 'admin';
+  const masterPwd = getMasterPassword(project);
   const backupFormat = options.withFilestore ? 'zip' : 'dump';
 
   const backupDir = path.join(__dirname, 'data/backups', project.id);
@@ -83,7 +97,7 @@ async function dropOdooDatabase(project: Project, onLog?: (msg: string) => void)
   if (!project.port) throw new Error("Project port not found.");
   onLog?.(`Dropping database ${project.config.dbName} via Odoo API...`);
   const odooUrl = `http://localhost:${project.port}/web/database/drop`;
-  const masterPwd = project.config.masterPassword || 'admin';
+  const masterPwd = getMasterPassword(project);
 
   const params = new URLSearchParams();
   params.append('master_pwd', masterPwd);
@@ -189,7 +203,7 @@ export async function restoreOdooDatabase(
     // Mode: Odoo Native API for .zip (includes filestore)
     onLog?.(`Detected .zip archive. Using Odoo native restore API at port ${project.port}...`);
     const odooUrl = `http://localhost:${project.port}/web/database/restore`;
-    const masterPwd = project.config.masterPassword || 'admin';
+    const masterPwd = getMasterPassword(project);
     
     const fileBuffer = await fs.readFile(backupFilepath);
     const formData = new FormData();

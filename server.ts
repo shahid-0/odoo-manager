@@ -186,9 +186,20 @@ async function startServer() {
       console.log("Creating Odoo container...");
       const odooContainerName = `${safeName}-odoo-${projectId.slice(0, 8)}`;
 
+      // Ensure project config directory exists and write odoo.conf
+      const projectConfigDir = path.join(process.cwd(), 'src', 'data', 'projects', projectId, 'config');
+      try {
+        await fs.mkdir(projectConfigDir, { recursive: true });
+        await fs.writeFile(path.join(projectConfigDir, 'odoo.conf'), config.odooConf || '');
+        appendLog(`[SYSTEM] Wrote odoo.conf to ${projectConfigDir}`);
+      } catch (err: any) {
+        appendLog(`[ERROR] Failed to write odoo.conf: ${err.message}`);
+      }
+
       // Build volume bindings
       const binds = [
         `${safeName}-web-data-${projectId.slice(0, 8)}:/var/lib/odoo`,
+        `${path.resolve(projectConfigDir)}:/etc/odoo`,
       ];
 
       // Add custom addon mounts from array
